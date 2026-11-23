@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [0.11.0] - 2026-11-24
 
 ### Added
+- **Declarative Heterogeneous Chip Composition & Inter-Chip Data Routing Subsystem (`ir/chip_composition.py`)**:
+  - Implemented `Chiplet` and `ChipRole` (`HOST_CONTROLLER`, `COMPUTE_ACCELERATOR`, `STORAGE_EXPANSION`, `SPECIALIZED_ASIC`, `PIM_MEMORY`) modeling modular dies with attached memory tiers and compute engines.
+  - Implemented `InterconnectLink` and `InterconnectType` (`DIRECT_TSV`, `UCIE_ADVANCED`, `NVLINK_C2C`, `CXL_3_0_PCIE`, `NOC_2D_MESH`, `ETHERNET_SCALE_UP`).
+  - Implemented `ChipComposition` with Dijkstra shortest-path inter-chip data routing (`find_shortest_data_path`), multi-hop transfer cost estimation with bottleneck bandwidth analysis, global multi-chip memory placement, and communication-aware operator dispatch.
+  - Built-in multi-die reference composition `create_modular_llm_superchip_composition()` (6 chips, 5 interconnect links).
+  - Created `test_chip_composition.py` (6/6 phases passing 100%).
+  - Added technical manual `docs/arch/05_CHIP_COMPOSITION_AND_DATA_ROUTING.md`.
 - **Modular Compiler & Architecture Documentation Library (`docs/` / `docx/`)**:
   - Established structured subdirectories `docs/compiler/` and `docs/arch/` (with `docx/` alias) decoupling middle-end compilation from backend chip targets and focusing on storage media and data movement.
   - **Compiler Algorithms & Paradigms Series (`docs/compiler/`)**:

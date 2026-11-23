@@ -33,6 +33,7 @@
 2. **[02. 指令集架构与硬件加速接口规范](docs/arch/02_INSTRUCTION_SETS_AND_HARDWARE_INTERFACES.md)**：RISC-V RV64GC 控制面、`custom-0` 脉动张量指令扩展、2D 跨步 DMA 描述符与门铃机制、硬件时间线信号量。
 3. **[03. 存储介质物理特性全景与层次化存储体系](docs/arch/03_STORAGE_MEDIA_AND_MEMORY_HIERARCHY.md)**：3D DRAM (HBM4)、HBF 闪存读写极端不对称性与 4KB 页面对齐、LPDDR5X、CXL 扩展内存、PIM 近存 Bank、片上多级 SRAM 参数矩阵。
 4. **[04. 硬件数据搬运原语、片间/片内流转与同步机制](docs/arch/04_DATA_MOVEMENT_AND_SYNCHRONIZATION.md)**：DMA 1D/2D、NoC 组播、Gather/Scatter、流式 FIFO、PIM 原位归约、传输代价估计公式、时间线信号量与信用点环形缓冲区。
+5. **[05. 基于存储拓扑与搬运网络的声明式芯片组合架构](docs/arch/05_CHIP_COMPOSITION_AND_DATA_ROUTING.md)**：以存储与互联骨架为核心的跨 Die 芯片组合（Chiplet）、Dijkstra 跨芯片最短数据搬运路径生成、多跳瓶颈带宽计算与全局多芯片张量安置与算子分派。
 
 ---
 
@@ -259,22 +260,25 @@ python3 benchmark.py
 
 ### 3. 执行模块专项测试套件
 ```bash
-# 1. 验证可扩展多级存储介质、数据搬运原语与异构固定算子分派
+# 1. 验证声明式芯片组合拓扑、Dijkstra 跨芯片数据路由与多 Die 存储安置
+python3 test_chip_composition.py
+
+# 2. 验证可扩展多级存储介质、数据搬运原语与异构固定算子分派
 python3 test_hetero_architecture.py
 
-# 2. 验证端到端自回归推理引擎与 Paged KV-Cache 生成循环 (Prefill -> Decode Loop -> Sampler)
+# 3. 验证端到端自回归推理引擎与 Paged KV-Cache 生成循环 (Prefill -> Decode Loop -> Sampler)
 python3 test_inference_engine.py
 
-# 3. 验证 LLVM/MLIR PassRegistry 与文本化流水线
+# 4. 验证 LLVM/MLIR PassRegistry 与文本化流水线
 python3 test_pass_registry.py
 
-# 4. 验证形状静态契约、多维广播、DCE 与 2D DMA 边界安全
+# 5. 验证形状静态契约、多维广播、DCE 与 2D DMA 边界安全
 python3 test_compiler_polish.py
 
-# 5. 验证 SymInt 全动态符号约束求解与循环守卫消除
+# 6. 验证 SymInt 全动态符号约束求解与循环守卫消除
 python3 test_sym_int_solver.py
 
-# 6. 验证 SafeTensors、PyTorch FX 与 MLIR 多源前端摄入
+# 7. 验证 SafeTensors、PyTorch FX 与 MLIR 多源前端摄入
 python3 test_frontend_ingestion.py
 ```
 All tests pass 100% out-of-the-box!

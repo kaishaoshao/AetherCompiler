@@ -26,6 +26,15 @@ from .target_desc import (
     ComputeEngine,
     TargetArchitecture
 )
+from .chip_composition import (
+    InterconnectType,
+    ChipRole,
+    InterconnectLink,
+    Chiplet,
+    DataPathHop,
+    InterChipDataRoute,
+    ChipComposition
+)
 
 __all__ = [
     "Buffer", "Stmt", "AllocBuffer", "FreeBuffer", "DmaTransfer", "DmaBarrier",
@@ -37,5 +46,7 @@ __all__ = [
     "SymExpr", "SymVar", "SymConst", "SymBinary", "Constraint",
     "SymbolicConstraintSolver", "sym_var", "sym_const",
     "MemorySpace", "MemoryTier", "MemoryHierarchy", "DataMoverType", "DataTransferDescriptor",
-    "EngineKind", "ComputeEngine", "TargetArchitecture"
+    "EngineKind", "ComputeEngine", "TargetArchitecture",
+    "InterconnectType", "ChipRole", "InterconnectLink", "Chiplet", "DataPathHop",
+    "InterChipDataRoute", "ChipComposition"
 ]
