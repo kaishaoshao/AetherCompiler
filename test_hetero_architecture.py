@@ -229,6 +229,84 @@ def test_5_end_to_end_hetero_compilation():
     print("  [OK] End-to-end heterogeneous target compilation and simulation verified!")
 
 
+def test_6_ultra_hetero_superchip_and_storage_media():
+    print("\n" + "=" * 70)
+    print(" [Phase 6/6] Testing Ultra Heterogeneous Architecture & Diverse Storage Media...")
+    print("=" * 70)
+
+    ultra_target = TargetArchitecture.create_zen_ultra_heterogeneous()
+    print("\n" + ultra_target.summary() + "\n")
+
+    hier = ultra_target.memory_hierarchy
+    assert "HBF_Flash_Pool" in hier.tiers
+    assert "3D_DRAM_Stack" in hier.tiers
+    assert "PIM_Near_Memory_Banks" in hier.tiers
+    assert "LPDDR5X_Pool" in hier.tiers
+    assert "L2_Cluster_SRAM" in hier.tiers
+    assert "Local_Scratchpad_SRAM" in hier.tiers
+
+    hbf = hier.get_tier("HBF_Flash_Pool")
+    three_d = hier.get_tier("3D_DRAM_Stack")
+    pim = hier.get_tier("PIM_Near_Memory_Banks")
+
+    # 1. Asymmetric Flash Bandwidth & Persistence
+    assert not hbf.is_volatile
+    assert hbf.read_bandwidth_bytes_cycle == 64.0
+    assert hbf.write_bandwidth_bytes_cycle == 8.0
+    assert hbf.alignment_bytes == 4096  # 4KB Flash page granularity
+
+    # 2. 3D DRAM ultra-wide bandwidth (1.5 TB/s)
+    assert three_d.read_bandwidth_bytes_cycle == 1536.0
+    assert three_d.capacity_bytes == 32 * 1024 * 1024 * 1024
+
+    # 3. PIM near-memory operations
+    assert pim.supports_near_memory_op("reduce_sum")
+    assert pim.supports_near_memory_op("scale")
+    assert not pim.supports_near_memory_op("matmul")
+
+    # 4. Middle-End Placement Policy
+    # Massive static weight -> HBF Flash
+    tier_weight = hier.find_optimal_placement("moe_layer_weight", 100 * 1024 * 1024, is_constant=True)
+    assert tier_weight == "HBF_Flash_Pool"
+
+    # Hot KV-cache / activation -> 3D DRAM
+    tier_kv = hier.find_optimal_placement("kv_cache_head", 4 * 1024 * 1024, is_hot_activation=True)
+    assert tier_kv == "3D_DRAM_Stack"
+
+    # Small intermediate activation -> On-chip L2 SRAM
+    tier_l2 = hier.find_optimal_placement("layer_norm_tmp", 256 * 1024, is_hot_activation=True)
+    assert tier_l2 == "L2_Cluster_SRAM"
+
+    # In-situ PIM candidate -> PIM near memory
+    tier_pim = hier.find_optimal_placement("bias_red", 64 * 1024, is_pim_candidate=True)
+    assert tier_pim == "PIM_Near_Memory_Banks"
+
+    print(f"  [Placement] Static Weight (100MB)       -> {tier_weight} (Flash Tier)")
+    print(f"  [Placement] Hot KV-Cache (4MB)          -> {tier_kv} (Ultra-wide 3D DRAM)")
+    print(f"  [Placement] Small Activation (256KB)    -> {tier_l2} (L2 Shared SRAM)")
+    print(f"  [Placement] PIM Reduction Candidate     -> {tier_pim} (In-situ Banks)")
+
+    # 5. Capability-driven routing with PIM engine
+    eng_pim = ultra_target.find_best_engine_for_op("reduce_sum", preferred_tier="PIM_Near_Memory_Banks")
+    eng_norm = ultra_target.find_best_engine_for_op("rmsnorm")
+    eng_mm = ultra_target.find_best_engine_for_op("matmul")
+
+    assert eng_pim.id == "pim_near_memory_engine"
+    assert eng_norm.id == "fixed_rmsnorm_asic"
+    assert eng_mm.id == "systolic_npu_cluster"
+
+    print(f"  [Routing] 'reduce_sum' (PIM tier) -> {eng_pim.id} (PIM_ENGINE)")
+    print(f"  [Routing] 'rmsnorm'               -> {eng_norm.id} (FIXED_ASIC)")
+    print(f"  [Routing] 'matmul'                -> {eng_mm.id} (SYSTOLIC_NPU)")
+
+    # 6. PIM In-situ Transfer Cost Modeling
+    cyc_pim_reduce = hier.estimate_transfer_cycles("PIM_Near_Memory_Banks", "PIM_Near_Memory_Banks", 4096, DataMoverType.PIM_DIRECT_REDUCE)
+    print(f"  [Data Mover] In-situ PIM Reduction (4KB) : {cyc_pim_reduce} cycles (Zero external bus traffic)")
+    assert cyc_pim_reduce <= 20
+
+    print("  [OK] Ultra Heterogeneous Architecture & Diverse Storage Media verified successfully!")
+
+
 def main():
     print("=" * 80)
     print("  ZEN-NPU COMPILER: EXTENSIBLE HETEROGENEOUS ARCHITECTURE TEST SUITE")
@@ -238,8 +316,9 @@ def main():
     test_3_capability_driven_operator_dispatching()
     test_4_heterogeneous_flow_module_ir()
     test_5_end_to_end_hetero_compilation()
+    test_6_ultra_hetero_superchip_and_storage_media()
     print("=" * 80)
-    print(" >>> ALL 5/5 HETEROGENEOUS ARCHITECTURE PHASES PASSED WITH 100% SUCCESS! <<<")
+    print(" >>> ALL 6/6 HETEROGENEOUS ARCHITECTURE PHASES PASSED WITH 100% SUCCESS! <<<")
     print("=" * 80)
 
 

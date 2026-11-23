@@ -10,18 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 - **Multi-Tier Memory Hierarchy Subsystem (`ir/memory_space.py`)**:
-  - Implemented `MemorySpace` enum (`DRAM_HBM`, `L2_SHARED_SRAM`, `CORE_LOCAL_SRAM`, `REGISTER_FILE`, `WEIGHT_FIFO`) and `MemoryTier` dataclass.
-  - Implemented `MemoryHierarchy` with tier capacity verification and inter-tier hardware data transfer cycle estimation.
-  - Formulated hardware data mover primitives (`DataMoverType`: 1D DMA, 2D Strided DMA, NoC Multicast, Gather/Scatter, Streaming FIFO).
+  - Implemented `MemorySpace` enum with modern & emerging media: `THREE_D_DRAM` (HBM3e/HBM4), `DRAM_HBM`, `HBF_FLASH` (High-Bandwidth Flash for massive MoE models), `LPDDR` (LPDDR5/5X), `CXL_EXPANSION`, `PIM_NEAR_MEMORY`, `L2_SHARED_SRAM`, `CORE_LOCAL_SRAM`, `REGISTER_FILE`, `WEIGHT_FIFO`.
+  - Upgraded `MemoryTier` with physical characteristics: asymmetric read vs. write bandwidth (`read_bandwidth_bytes_cycle`, `write_bandwidth_bytes_cycle`), volatility/persistence (`is_volatile`), access alignment/page granularity (`alignment_bytes`), and supported in-situ PIM operations (`near_memory_ops`).
+  - Implemented `MemoryHierarchy` with compiler middle-end placement policy (`find_optimal_placement`) automatically assigning static weights to HBF Flash, hot activations to 3D DRAM/L2 SRAM, and reduction candidates to PIM near-memory banks.
+  - Formulated hardware data mover primitives (`DataMoverType`: 1D DMA, 2D Strided DMA, NoC Multicast, Gather/Scatter, Streaming FIFO, and `PIM_DIRECT_REDUCE` in-situ reduction).
 - **Declarative Heterogeneous Target Architecture (`ir/target_desc.py`)**:
-  - Implemented `ComputeEngine` and `EngineKind` (`SCALAR_CPU`, `SYSTOLIC_NPU`, `SIMD_VECTOR`, `FIXED_ASIC`).
-  - Implemented `TargetArchitecture` with capability-driven operator router (`find_best_engine_for_op`) directing operators to optimal hardware units (Fast-path Fixed-ASIC routing, Systolic GEMM routing, Scalar CPU fallback).
-  - Built-in heterogeneous chip definition: `Zen_Hetero_SoC_V2` (1x Host RV64 CPU, 4x Systolic NPU Cores, 1x Fixed RMSNorm ASIC, 1x Fixed Softmax ASIC, 4-tier memory, 2D DMA, NoC Multicast).
+  - Implemented `ComputeEngine` and `EngineKind` (`SCALAR_CPU`, `SYSTOLIC_NPU`, `SIMD_VECTOR`, `FIXED_ASIC`, `PIM_ENGINE`).
+  - Implemented `TargetArchitecture` with capability-driven operator router (`find_best_engine_for_op`) directing operators to optimal hardware units (Fast-path Fixed-ASIC routing, Systolic GEMM routing, PIM Near-Memory routing, and Scalar CPU fallback).
+  - Built-in heterogeneous chip definitions:
+    - `Zen_Hetero_SoC_V2`: 1x Host RV64 CPU, 4x Systolic NPU Cores, 1x Fixed RMSNorm ASIC, 1x Fixed Softmax ASIC, 4-tier memory, 2D DMA, NoC Multicast.
+    - `Zen_Ultra_Hetero_Superchip`: 4x RV64 CPU Host Cores, 8x Systolic NPU Cores, 2x Fixed RMSNorm ASICs, 2x Fixed Softmax ASICs, 16x PIM In-Memory Bank Engines, 6-tier storage hierarchy (512GB HBF Flash, 32GB 3D DRAM, 128GB LPDDR5X, 16GB PIM, 2MB L2 SRAM, 64KB Scratchpad SRAM).
 - **Heterogeneous Flow Dispatch Pass (`FlowDispatchPass`)**:
   - Upgraded executable and dispatch region generation with `target_engine`, `engine_kind`, and `queue_name` attributes.
   - Emitted multi-queue MLIR Flow dialect representation.
+- **Documentation & Technical Specification**:
+  - Created `docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md`: Exhaustive architectural specification on heterogeneous memory hierarchy, DAE data movers, declarative SoC description, and deep comparative study with Tenstorrent Tensix, Google TPU Mosaic, Groq TSP, AMD Versal AIE, and Modular MAX.
 - **Verification Suite**:
-  - Created `test_hetero_architecture.py` covering multi-tier memory modeling, target architecture queries, capability-driven dispatch routing, heterogeneous Flow MLIR generation, and end-to-end compilation (5/5 phases passing 100%).
+  - Created and expanded `test_hetero_architecture.py` covering multi-tier memory modeling, target architecture queries, capability-driven dispatch routing, heterogeneous Flow MLIR generation, end-to-end compilation, and ultra-heterogeneous SoC validation (6/6 phases passing 100%).
 
 ---
 

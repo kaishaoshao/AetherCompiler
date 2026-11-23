@@ -5,7 +5,8 @@ Models heterogeneous SoC chips combining:
 1. General-purpose Scalar CPU Cores (control flow, scalar fallback).
 2. Programmable Systolic NPU Cores (dense 2D GEMM / Conv).
 3. Dedicated Fixed-Function ASICs (Hardwired Softmax, RMSNorm, Dequantization).
-4. Multi-tier memory hierarchy with DMA and NoC interconnect.
+4. Near-Memory Processing Engines (PIM banks inside 3D DRAM).
+5. Multi-tier memory hierarchy (3D DRAM, HBF Flash, LPDDR5X, CXL, L2 SRAM, Local Scratchpad).
 """
 
 from enum import Enum, auto
@@ -21,6 +22,7 @@ class EngineKind(Enum):
     SYSTOLIC_NPU = "systolic_npu"     # Programmable 2D matrix multiplication systolic array
     SIMD_VECTOR = "simd_vector"       # Vector SIMD ALU for elementwise/activations
     FIXED_ASIC = "fixed_asic"         # Hardwired dedicated accelerator (RMSNorm, Softmax, etc.)
+    PIM_ENGINE = "pim_engine"         # Near-memory processing unit within 3D DRAM/HBM banks
 
 
 @dataclass
@@ -62,14 +64,21 @@ class TargetArchitecture:
             raise KeyError(f"Compute engine '{engine_id}' not found! Available: {list(self.engines.keys())}")
         return self.engines[engine_id]
 
-    def find_best_engine_for_op(self, op_type: str) -> ComputeEngine:
+    def find_best_engine_for_op(self, op_type: str, preferred_tier: Optional[str] = None) -> ComputeEngine:
         """
         Capability-driven dispatch router:
-        1. Priority 1: Check for Dedicated Fixed-Function ASIC (zero overhead hardware).
-        2. Priority 2: Tensor Systolic NPU (for GEMM, Conv, FlashAttention).
-        3. Priority 3: SIMD Vector Engine (for Activations, Elementwise).
-        4. Priority 4: Scalar CPU Fallback.
+        1. Check if preferred_tier is PIM and PIM engine supports op_type -> PIM_ENGINE.
+        2. Priority 1: Check for Dedicated Fixed-Function ASIC (zero overhead hardware).
+        3. Priority 2: Tensor Systolic NPU (for GEMM, Conv, FlashAttention).
+        4. Priority 3: SIMD Vector Engine (for Activations, Elementwise).
+        5. Priority 4: Scalar CPU Fallback.
         """
+        # 0. Check PIM In-Memory Execution
+        if preferred_tier and "PIM" in preferred_tier:
+            for eng in self.engines.values():
+                if eng.kind == EngineKind.PIM_ENGINE and eng.can_execute(op_type):
+                    return eng
+
         # 1. Search Fixed-Function ASICs
         for eng in self.engines.values():
             if eng.kind == EngineKind.FIXED_ASIC and eng.can_execute(op_type):
@@ -158,7 +167,6 @@ class TargetArchitecture:
             ],
             clock_frequency_ghz=1.0
         )
-        # 1. Programmable Systolic NPU Core Cluster
         target.add_engine(ComputeEngine(
             id="systolic_npu_cluster",
             kind=EngineKind.SYSTOLIC_NPU,
@@ -172,17 +180,15 @@ class TargetArchitecture:
             local_memory_tier="Local_SRAM",
             queue_name="npu_matrix_queue"
         ))
-        # 2. Fixed-Function Dedicated RMSNorm Accelerator
         target.add_engine(ComputeEngine(
             id="fixed_rmsnorm_asic",
             kind=EngineKind.FIXED_ASIC,
             count=1,
             supported_ops=["rmsnorm", "fused_add_rmsnorm"],
-            throughput_cycles_per_elem=0.1,  # Ultra-fast hardwired pipelined reduction
+            throughput_cycles_per_elem=0.1,
             local_memory_tier="Local_SRAM",
             queue_name="asic_norm_queue"
         ))
-        # 3. Fixed-Function Dedicated Softmax Accelerator
         target.add_engine(ComputeEngine(
             id="fixed_softmax_asic",
             kind=EngineKind.FIXED_ASIC,
@@ -192,13 +198,84 @@ class TargetArchitecture:
             local_memory_tier="Local_SRAM",
             queue_name="asic_softmax_queue"
         ))
-        # 4. Host Scalar CPU
         target.add_engine(ComputeEngine(
             id="scalar_cpu_host",
             kind=EngineKind.SCALAR_CPU,
             count=1,
             supported_ops=["all_fallback"],
             throughput_cycles_per_elem=4.0,
+            local_memory_tier="L2_Cluster_SRAM",
+            queue_name="cpu_control_queue"
+        ))
+        return target
+
+    @classmethod
+    def create_zen_ultra_heterogeneous(cls) -> 'TargetArchitecture':
+        """
+        Next-Gen Ultra Heterogeneous AI Superchip:
+        - Storage: 512GB HBF Flash + 32GB 3D DRAM + 128GB LPDDR5X + 16GB PIM + 2MB L2 + 64KB Scratchpad
+        - Engines: 1x RV64 CPU + 8x Systolic NPU + 1x Fixed RMSNorm ASIC + 1x Fixed Softmax ASIC + PIM Engine
+        """
+        mem = MemoryHierarchy.create_ultra_heterogeneous()
+        target = cls(
+            name="Zen_Ultra_Hetero_Superchip",
+            memory_hierarchy=mem,
+            supported_movers=[
+                DataMoverType.DMA_1D,
+                DataMoverType.DMA_2D_STRIDED,
+                DataMoverType.NOC_MULTICAST,
+                DataMoverType.GATHER_SCATTER,
+                DataMoverType.STREAMING_FIFO,
+                DataMoverType.PIM_DIRECT_REDUCE
+            ],
+            clock_frequency_ghz=1.2
+        )
+        target.add_engine(ComputeEngine(
+            id="systolic_npu_cluster",
+            kind=EngineKind.SYSTOLIC_NPU,
+            count=8,
+            supported_ops=[
+                "matmul", "fused_matmul_add_relu", "fused_matmul_add",
+                "fused_flash_attention", "fused_horizontal_qkv_matmul",
+                "swiglu", "geglu"
+            ],
+            throughput_cycles_per_elem=0.125,
+            local_memory_tier="Local_Scratchpad_SRAM",
+            queue_name="npu_matrix_queue"
+        ))
+        target.add_engine(ComputeEngine(
+            id="fixed_rmsnorm_asic",
+            kind=EngineKind.FIXED_ASIC,
+            count=2,
+            supported_ops=["rmsnorm", "fused_add_rmsnorm"],
+            throughput_cycles_per_elem=0.05,
+            local_memory_tier="Local_Scratchpad_SRAM",
+            queue_name="asic_norm_queue"
+        ))
+        target.add_engine(ComputeEngine(
+            id="fixed_softmax_asic",
+            kind=EngineKind.FIXED_ASIC,
+            count=2,
+            supported_ops=["softmax"],
+            throughput_cycles_per_elem=0.1,
+            local_memory_tier="Local_Scratchpad_SRAM",
+            queue_name="asic_softmax_queue"
+        ))
+        target.add_engine(ComputeEngine(
+            id="pim_near_memory_engine",
+            kind=EngineKind.PIM_ENGINE,
+            count=16,
+            supported_ops=["add", "mul", "scale", "reduce_sum"],
+            throughput_cycles_per_elem=0.08,
+            local_memory_tier="PIM_Near_Memory_Banks",
+            queue_name="pim_bank_queue"
+        ))
+        target.add_engine(ComputeEngine(
+            id="scalar_cpu_host",
+            kind=EngineKind.SCALAR_CPU,
+            count=4,
+            supported_ops=["all_fallback"],
+            throughput_cycles_per_elem=2.0,
             local_memory_tier="L2_Cluster_SRAM",
             queue_name="cpu_control_queue"
         ))

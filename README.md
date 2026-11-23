@@ -15,6 +15,15 @@
 
 ---
 
+## 📚 详细设计与技术参考文档 (Architecture & Reference Manuals)
+
+* 📘 **[系统宏观架构设计白皮书 (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md)**: 4 层 MLIR 渐进降阶、分层 IR 语义、RISC-V `custom-0` 硬件扩展。
+* 📙 **[已注册 Pass 完整参考手册 (`docs/PASSES.md`)](docs/PASSES.md)**: 7 大中端优化 Pass 的图例重写、参数契约与硬件收益分析。
+* 📕 **[异构存储介质抽象与超异构芯片编译分发技术规范 (`docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md`)](docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md)**: 3D DRAM、HBF 闪存、LPDDR5X、PIM 近存计算、硬件数据搬运原语（DMA/NoC 多播/DAE）、声明式 SoC 建模与主流芯片架构对比（Tenstorrent / TPU / Groq / AIE）。
+* 📗 **[版本更新日志 (`CHANGELOG.md`)](CHANGELOG.md)**: 遵循 Keep a Changelog 规范的完整版本演进历史。
+
+---
+
 ## 目录索引 (Table of Contents)
 
 - [一、 编译器整体架构与降阶阶梯](#一-编译器整体架构与降阶阶梯)
@@ -24,6 +33,7 @@
   - [2. SymInt 符号约束求解器与循环守卫消除](#2-symint-符号约束求解器与循环守卫消除)
   - [3. LLVM/MLIR 风格动态 Pass 注册表与文本流水线](#3-llvmmlir-风格动态-pass-注册表与文本流水线)
   - [4. 工程细节完备度与硬件安全](#4-工程细节完备度与硬件安全)
+  - [5. 多层存储介质 (3D DRAM/HBF/LPDDR/PIM) 与超异构芯片分发](#5-多层存储介质-3d-dramhbflpddrpim-与超异构芯片分发)
 - [四、 已注册中端 Pass 规范总表](#四-已注册中端-pass-规范总表)
 - [五、 支持的大模型架构](#五-支持的大模型架构)
 - [六、 性能评测与微架构分析](#六-性能评测与微架构分析)
@@ -170,6 +180,12 @@ artifact = compiler.compile(graph)
 * **多维尾部广播对齐 (`broadcast_shapes`)**：完全兼容 NumPy / PyTorch 规范的 $(B, 1, D) + (D,)$ 跨 Rank 自动广播。
 * **边界安全 2D DMA**：在分块未对齐的 Prime 形状矩阵上，自动发射 `actual_bm`、`actual_bn` 动态裁剪，配合 `npu_dma_async_2d` 杜绝便笺内存非法越界。
 * **Decode 阶段自适应调度**：当识别到自回归生成阶段 $M < 4$ 时，调度器自动由行切分（$M$ 维度）切换为列切分（$N$ 维度），保证 4 核心负载均衡。
+
+### 5. 多层存储介质 (3D DRAM/HBF/LPDDR/PIM) 与超异构芯片分派
+* **全景存储形式化抽象 (`MemorySpace` & `MemoryTier`)**：形式化建模 3D TSV-堆叠高带宽 DRAM（HBM3e/4）、TB 级高带宽非易失闪存（HBF Flash）、LPDDR5X、CXL 池化内存、PIM 近存计算 Bank 以及核心 Scratchpad SRAM。
+* **物理非对称与代价模型**：精确刻画 HBF 极端读写不对称（读 64GB/s vs 写 8GB/s）、4KB 页面对齐开销；提供 DMA 1D/2D、NoC 组播（1-to-N）与原位近存归约（`PIM_DIRECT_REDUCE`）等 6 大硬件数据搬运代价估算。
+* **中端张量生命周期安置策略 (`find_optimal_placement`)**：编译期自动将海量静态权重推入 HBF Flash、高频 KV-Cache 与激活值推入 3D DRAM、原位归约下推入 PIM Bank。
+* **声明式超异构芯片与能力驱动分发 (`TargetArchitecture`)**：基于算子白名单与硬件队列，将固定算子优先分派给专用硬件快道（如 RMSNorm / Softmax ASIC），矩阵运算分派给脉动阵列，近存归约分派给 PIM，异构算子安全退避至标量 CPU。详见技术规范 **[docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md](docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md)**。
 
 ---
 
