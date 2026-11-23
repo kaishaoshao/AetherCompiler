@@ -1,0 +1,245 @@
+"""
+Level 3 Intermediate Representation: Command & Hardware Runtime IR (IREE Stream / HAL 风格).
+Represents a flattened hardware command stream:
+- Explicit physical memory pointers and byte offsets
+- Asynchronous DMA command queues and hardware barriers
+- Direct RISC-V Custom-0 Coprocessor instructions (.insn)
+
+Lowered from: Level 2 Loop IR (ir.loop_ir).
+Lowers to: Machine Code / RV64 Assembly / Freestanding C.
+"""
+
+from typing import List, Dict, Any, Optional
+
+class Command:
+    """Base class for hardware runtime commands."""
+    def to_c(self, indent: int = 2) -> str:
+        raise NotImplementedError
+
+    def to_ir(self) -> str:
+        raise NotImplementedError
+
+
+class CmdComment(Command):
+    def __init__(self, text: str):
+        self.text = text
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        return f"{sp}// {self.text}"
+
+    def to_ir(self) -> str:
+        return f"// {self.text}"
+
+
+class CmdDmaAsync(Command):
+    def __init__(self, dst_expr: str, src_expr: str, bytes_expr: str, comment: str = ""):
+        self.dst_expr = dst_expr
+        self.src_expr = src_expr
+        self.bytes_expr = bytes_expr
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"{sp}npu_dma_async({self.dst_expr}, {self.src_expr}, {self.bytes_expr});{cmt}"
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"hal.dma.copy_async dst={self.dst_expr}, src={self.src_expr}, bytes={self.bytes_expr}{cmt}"
+
+
+class CmdDmaWait(Command):
+    def __init__(self, comment: str = ""):
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"{sp}npu_dma_wait();{cmt}"
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"hal.fence.await_dma(){cmt}"
+
+
+class CmdCustom0Op(Command):
+    """Encapsulates a RISC-V Custom-0 (opcode 0x0B) hardware coprocessor instruction."""
+    def __init__(self, funct3: int, funct7: int, rd: str, rs1: str, rs2: str, comment: str = ""):
+        self.funct3 = funct3
+        self.funct7 = funct7
+        self.rd = rd
+        self.rs1 = rs1
+        self.rs2 = rs2
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f'{sp}asm volatile (".insn r 0x0b, {self.funct3}, {self.funct7}, {self.rd}, {self.rs1}, {self.rs2}\\n" : : : "memory");{cmt}'
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"rv64.custom0 funct3={self.funct3}, funct7={self.funct7}, rd={self.rd}, rs1={self.rs1}, rs2={self.rs2}{cmt}"
+
+
+class CmdKernelCall(Command):
+    def __init__(self, kernel_name: str, args_str: str, comment: str = ""):
+        self.kernel_name = kernel_name
+        self.args_str = args_str
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"{sp}{self.kernel_name}({self.args_str});{cmt}"
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"hal.kernel.dispatch {self.kernel_name}({self.args_str}){cmt}"
+
+
+class CmdRawCode(Command):
+    def __init__(self, code_line: str):
+        self.code_line = code_line
+
+    def to_c(self, indent: int = 2) -> str:
+        return self.code_line
+
+    def to_ir(self) -> str:
+        return self.code_line.strip()
+
+
+class CommandModule:
+    """A compiled executable module expressed in Command / HAL Runtime IR."""
+    def __init__(self, name: str, commands: List[Command], dram_bytes: int, sram_bytes: int, num_cores: int):
+        self.name = name
+        self.commands = commands
+        self.dram_bytes = dram_bytes
+        self.sram_bytes = sram_bytes
+        self.num_cores = num_cores
+
+    def print_ir(self):
+        print(f"==================== Level 3: Command & HAL Runtime IR [{self.name}] ====================")
+        print(f"Memory Resource Config: DRAM={self.dram_bytes} B | Core SRAM={self.sram_bytes} B | Cores={self.num_cores}")
+        print("Hardware Command Stream:")
+        sample = self.commands[:25]
+        for cmd in sample:
+            print(f"  {cmd.to_ir()}")
+        if len(self.commands) > 25:
+            print(f"  ... ({len(self.commands) - 25} more hardware commands)")
+        print("==========================================================================================\n")
+
+    def emit_c_code(self) -> str:
+        lines: List[str] = []
+        lines.append("// ============================================================================")
+        lines.append(f"// Generated by Zen-NPU Multi-Level IR Progressive Lowering Pipeline")
+        lines.append(f"// Target: {self.num_cores}-Core RISC-V 64-bit + Custom-0 NPU Coprocessor")
+        lines.append("// ============================================================================\n")
+
+        lines.append("// Freestanding definitions for zero-dependency compilation on RISC-V and Host")
+        lines.append("#ifdef __riscv")
+        lines.append("typedef unsigned long  size_t;")
+        lines.append("typedef unsigned char  uint8_t;")
+        lines.append("static inline void* npu_memset(void* s, int c, size_t n) {")
+        lines.append("    unsigned char* p = (unsigned char*)s;")
+        lines.append("    while (n--) *p++ = (unsigned char)c;")
+        lines.append("    return s;")
+        lines.append("}")
+        lines.append("#define memset npu_memset")
+        lines.append("#else")
+        lines.append("#include <stdio.h>")
+        lines.append("#include <stdlib.h>")
+        lines.append("#include <string.h>")
+        lines.append("#include <stdint.h>")
+        lines.append("#include <math.h>")
+        lines.append("#endif\n")
+
+        lines.append(f"#define GLOBAL_DRAM_SIZE  {self.dram_bytes}")
+        lines.append(f"#define PER_CORE_SRAM     {self.sram_bytes}")
+        lines.append(f"#define NUM_NPU_CORES     {self.num_cores}\n")
+
+        # Instruction wrappers
+        lines.append("""
+// --- NPU Custom-0 Coprocessor Instruction Wrappers & Host Fallback ---
+#if defined(__riscv) && defined(__riscv_xlen) && (__riscv_xlen == 64)
+// Hardware instructions in RISC-V custom-0 opcode (0x0B)
+static inline void npu_dma_async(void* dst, const void* src, size_t bytes) {
+    asm volatile (".insn r 0x0b, 0, 1, x0, %0, %1\\n" : : "r"(dst), "r"(src), "r"(bytes) : "memory");
+}
+static inline void npu_dma_wait(void) {
+    asm volatile (".insn i 0x0b, 1, x0, x0, 0\\n" : : : "memory");
+}
+static inline void npu_matmul_tile(float* c, const float* a, const float* b, int bm, int bn, int bk) {
+    asm volatile (".insn r 0x0b, 0, 2, %0, %1, %2\\n" : : "r"(c), "r"(a), "r"(b) : "memory");
+}
+static inline void npu_bias_relu_tile(float* c, const float* bias, int bm, int bn) {
+    asm volatile (".insn r 0x0b, 0, 3, %0, %1, %2\\n" : : "r"(c), "r"(bias), "r"((size_t)(bm * bn)) : "memory");
+}
+static inline void npu_rmsnorm_tile(float* out, const float* in, const float* weight, int tokens, int dim, float eps) {
+    asm volatile (".insn r 0x0b, 0, 4, %0, %1, %2\\n" : : "r"(out), "r"(in), "r"(weight) : "memory");
+}
+static inline void npu_silu_mul_tile(float* out, const float* gate, const float* up, int tokens, int dim) {
+    asm volatile (".insn r 0x0b, 0, 5, %0, %1, %2\\n" : : "r"(out), "r"(gate), "r"(up) : "memory");
+}
+static inline void npu_rope_tile(float* out, const float* in, const float* cos_tab, const float* sin_tab, int tokens, int dim) {
+    asm volatile (".insn r 0x0b, 0, 6, %0, %1, %2\\n" : : "r"(out), "r"(in), "r"(cos_tab) : "memory");
+}
+#else
+// C Host Emulation Reference
+static inline void npu_dma_async(void* dst, const void* src, size_t bytes) {
+    memcpy(dst, src, bytes);
+}
+static inline void npu_dma_wait(void) {}
+static inline void npu_matmul_tile(float* c, const float* a, const float* b, int bm, int bn, int bk) {
+    for (int i = 0; i < bm; ++i)
+        for (int k = 0; k < bk; ++k)
+            for (int j = 0; j < bn; ++j)
+                c[i * bn + j] += a[i * bk + k] * b[k * bn + j];
+}
+static inline void npu_bias_relu_tile(float* c, const float* bias, int bm, int bn) {
+    for (int i = 0; i < bm; ++i)
+        for (int j = 0; j < bn; ++j) {
+            float v = c[i * bn + j] + (bias ? bias[j] : 0.0f);
+            c[i * bn + j] = (v > 0.0f) ? v : 0.0f;
+        }
+}
+static inline void npu_rmsnorm_tile(float* out, const float* in, const float* weight, int tokens, int dim, float eps) {
+    for (int t = 0; t < tokens; ++t) {
+        float sum_sq = 0.0f;
+        for (int d = 0; d < dim; ++d) { float val = in[t * dim + d]; sum_sq += val * val; }
+        float rms = 1.0f / (float)sqrt((double)(sum_sq / dim + eps));
+        for (int d = 0; d < dim; ++d) { out[t * dim + d] = in[t * dim + d] * rms * weight[d]; }
+    }
+}
+static inline void npu_silu_mul_tile(float* out, const float* gate, const float* up, int tokens, int dim) {
+    for (int idx = 0; idx < tokens * dim; ++idx) {
+        float g = gate[idx];
+        float silu_val = g / (1.0f + (float)exp(-(double)g));
+        out[idx] = silu_val * up[idx];
+    }
+}
+static inline void npu_rope_tile(float* out, const float* in, const float* cos_tab, const float* sin_tab, int tokens, int dim) {
+    int half_dim = dim / 2;
+    for (int t = 0; t < tokens; ++t) {
+        for (int i = 0; i < half_dim; ++i) {
+            float x1 = in[t * dim + i];
+            float x2 = in[t * dim + i + half_dim];
+            float c = cos_tab[t * dim + i];
+            float s = sin_tab[t * dim + i];
+            out[t * dim + i] = x1 * c - x2 * s;
+            out[t * dim + i + half_dim] = x1 * s + x2 * c;
+        }
+    }
+}
+#endif
+""")
+
+        lines.append("// Multi-Core Entry Point: dispatches across available NPU cores")
+        lines.append("void run_model(uint8_t* dram_base, int core_id) {\n")
+
+        for cmd in self.commands:
+            lines.append(cmd.to_c(indent=1))
+
+        lines.append("}\n")
+        return "\n".join(lines)
