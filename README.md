@@ -34,6 +34,7 @@
 3. **[03. 存储介质物理特性全景与层次化存储体系](docs/arch/03_STORAGE_MEDIA_AND_MEMORY_HIERARCHY.md)**：3D DRAM (HBM4)、HBF 闪存读写极端不对称性与 4KB 页面对齐、LPDDR5X、CXL 扩展内存、PIM 近存 Bank、片上多级 SRAM 参数矩阵。
 4. **[04. 硬件数据搬运原语、片间/片内流转与同步机制](docs/arch/04_DATA_MOVEMENT_AND_SYNCHRONIZATION.md)**：DMA 1D/2D、NoC 组播、Gather/Scatter、流式 FIFO、PIM 原位归约、传输代价估计公式、时间线信号量与信用点环形缓冲区。
 5. **[05. 基于存储拓扑与搬运网络的声明式芯片组合架构](docs/arch/05_CHIP_COMPOSITION_AND_DATA_ROUTING.md)**：以存储与互联骨架为核心的跨 Die 芯片组合（Chiplet）、Dijkstra 跨芯片最短数据搬运路径生成、多跳瓶颈带宽计算与全局多芯片张量安置与算子分派。
+6. **[06. 开源前沿技术借鉴与四层数据搬运-芯片组合架构最佳实践指南](docs/arch/06_OPEN_SOURCE_BLUEPRINT_AND_IMPLEMENTATION_GUIDE.md)**：深度剖析 AMD MLIR-AIE (ObjectFifo + BufferDescriptor)、Tenstorrent TT-Metalium (Reader/Writer + Circular Buffer)、Google IREE (Stream Dialect + Timepoint) 与 Chiplet 前沿编译器，确立四层解耦统一搭建蓝图。
 
 ---
 

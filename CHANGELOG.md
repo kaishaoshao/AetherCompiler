@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Built-in multi-die reference composition `create_modular_llm_superchip_composition()` (6 chips, 5 interconnect links).
   - Created `test_chip_composition.py` (6/6 phases passing 100%).
   - Added technical manual `docs/arch/05_CHIP_COMPOSITION_AND_DATA_ROUTING.md`.
+  - Added architectural guide `docs/arch/06_OPEN_SOURCE_BLUEPRINT_AND_IMPLEMENTATION_GUIDE.md` synthesizing AMD MLIR-AIE, Tenstorrent TT-Metalium, Google IREE, and Chiplet compiler methodologies into a 4-layer unified blueprint.
 - **Modular Compiler & Architecture Documentation Library (`docs/` / `docx/`)**:
   - Established structured subdirectories `docs/compiler/` and `docs/arch/` (with `docx/` alias) decoupling middle-end compilation from backend chip targets and focusing on storage media and data movement.
   - **Compiler Algorithms & Paradigms Series (`docs/compiler/`)**:
