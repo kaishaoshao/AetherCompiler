@@ -129,6 +129,19 @@ class NPUPerformanceProfiler:
             M, K = node.inputs[0].shape
             _, N = node.inputs[1].shape
             return 2 * M * N * K + M * N
+        elif op_type == "fused_horizontal_qkv_matmul":
+            M, K = node.inputs[0].shape
+            total = 0
+            for w in node.inputs[1:]:
+                total += 2 * M * w.shape[1] * K
+            return total
+        elif op_type == "fused_add_rmsnorm":
+            # Add (1 FLOP/elem) + RMSNorm (5 FLOP/elem)
+            return 6 * node.outputs[0].num_elements
+        elif op_type == "fused_flash_attention":
+            # Q: [L, D], K: [L, D], V: [L, D] -> Q*K^T (2*L*L*D) + Softmax (4*L*L) + P*V (2*L*D*L)
+            L, D = node.inputs[0].shape
+            return 4 * L * L * D + 4 * L * L
         elif op_type in ("add", "mul", "relu"):
             return node.outputs[0].num_elements
         elif op_type == "silu":
@@ -266,7 +279,12 @@ class NPUPerformanceProfiler:
                 node_overlap = 0
             elif is_matmul:
                 M, K = node.inputs[0].shape
-                _, N = node.inputs[1].shape
+                if node.op_type == "fused_horizontal_qkv_matmul":
+                    N = sum(w.shape[1] for w in node.inputs[1:])
+                elif node.op_type == "fused_flash_attention":
+                    N = K
+                else:
+                    _, N = node.inputs[1].shape
 
                 # Multi-core compute cycles across `num_cores`
                 peak_core_flops_per_cycle = self.hw.macs_per_cycle_per_core * 2 * num_cores

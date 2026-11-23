@@ -50,35 +50,94 @@ static inline void npu_silu_mul_tile(float* out, const float* gate, const float*
 static inline void npu_rope_tile(float* out, const float* in, const float* cos_tab, const float* sin_tab, int tokens, int dim) {
     asm volatile (".insn r 0x0b, 0, 6, %0, %1, %2\n" : : "r"(out), "r"(in), "r"(cos_tab) : "memory");
 }
+static inline void npu_flash_attention_tile(float* out, const float* q, const float* k, const float* v, int tokens, int dim) {
+    asm volatile (".insn r 0x0b, 0, 7, %0, %1, %2\n" : : "r"(out), "r"(q), "r"(k) : "memory");
+}
 #else
-// C Host Emulation Reference
+// C Host Emulation Reference (with 4-Way Loop Unrolling & Instruction-Level Parallelism)
 static inline void npu_dma_async(void* dst, const void* src, size_t bytes) {
     memcpy(dst, src, bytes);
 }
 static inline void npu_dma_wait(void) {}
 static inline void npu_matmul_tile(float* c, const float* a, const float* b, int bm, int bn, int bk) {
-    for (int i = 0; i < bm; ++i)
-        for (int k = 0; k < bk; ++k)
-            for (int j = 0; j < bn; ++j)
-                c[i * bn + j] += a[i * bk + k] * b[k * bn + j];
+    for (int i = 0; i < bm; ++i) {
+        for (int j = 0; j < bn; ++j) {
+            float sum0 = 0.0f;
+            int k = 0;
+            // 4-Way ILP Loop Unrolling along reduction dimension
+            for (; k <= bk - 4; k += 4) {
+                sum0 += a[i * bk + k + 0] * b[(k + 0) * bn + j];
+                sum0 += a[i * bk + k + 1] * b[(k + 1) * bn + j];
+                sum0 += a[i * bk + k + 2] * b[(k + 2) * bn + j];
+                sum0 += a[i * bk + k + 3] * b[(k + 3) * bn + j];
+            }
+            for (; k < bk; ++k) {
+                sum0 += a[i * bk + k] * b[k * bn + j];
+            }
+            c[i * bn + j] += sum0;
+        }
+    }
 }
 static inline void npu_bias_relu_tile(float* c, const float* bias, int bm, int bn) {
-    for (int i = 0; i < bm; ++i)
-        for (int j = 0; j < bn; ++j) {
-            float v = c[i * bn + j] + (bias ? bias[j] : 0.0f);
-            c[i * bn + j] = (v > 0.0f) ? v : 0.0f;
+    int total = bm * bn;
+    int idx = 0;
+    // 4-Way Unrolled Vector ReLU & Bias Add
+    for (; idx <= total - 4; idx += 4) {
+        for (int step = 0; step < 4; ++step) {
+            int j = (idx + step) % bn;
+            float v = c[idx + step] + (bias ? bias[j] : 0.0f);
+            c[idx + step] = (v > 0.0f) ? v : 0.0f;
         }
+    }
+    for (; idx < total; ++idx) {
+        int j = idx % bn;
+        float v = c[idx] + (bias ? bias[j] : 0.0f);
+        c[idx] = (v > 0.0f) ? v : 0.0f;
+    }
 }
 static inline void npu_rmsnorm_tile(float* out, const float* in, const float* weight, int tokens, int dim, float eps) {
     for (int t = 0; t < tokens; ++t) {
         float sum_sq = 0.0f;
-        for (int d = 0; d < dim; ++d) { float val = in[t * dim + d]; sum_sq += val * val; }
+        const float* in_ptr = &in[t * dim];
+        int d = 0;
+        // 4-Way Unrolled ILP Sum of Squares
+        for (; d <= dim - 4; d += 4) {
+            float v0 = in_ptr[d + 0];
+            float v1 = in_ptr[d + 1];
+            float v2 = in_ptr[d + 2];
+            float v3 = in_ptr[d + 3];
+            sum_sq += v0 * v0 + v1 * v1 + v2 * v2 + v3 * v3;
+        }
+        for (; d < dim; ++d) {
+            float v = in_ptr[d];
+            sum_sq += v * v;
+        }
         float rms = 1.0f / (float)sqrt((double)(sum_sq / dim + eps));
-        for (int d = 0; d < dim; ++d) { out[t * dim + d] = in[t * dim + d] * rms * weight[d]; }
+        float* out_ptr = &out[t * dim];
+        d = 0;
+        for (; d <= dim - 4; d += 4) {
+            out_ptr[d + 0] = in_ptr[d + 0] * rms * weight[d + 0];
+            out_ptr[d + 1] = in_ptr[d + 1] * rms * weight[d + 1];
+            out_ptr[d + 2] = in_ptr[d + 2] * rms * weight[d + 2];
+            out_ptr[d + 3] = in_ptr[d + 3] * rms * weight[d + 3];
+        }
+        for (; d < dim; ++d) {
+            out_ptr[d] = in_ptr[d] * rms * weight[d];
+        }
     }
 }
 static inline void npu_silu_mul_tile(float* out, const float* gate, const float* up, int tokens, int dim) {
-    for (int idx = 0; idx < tokens * dim; ++idx) {
+    int total = tokens * dim;
+    int idx = 0;
+    for (; idx <= total - 4; idx += 4) {
+        for (int step = 0; step < 4; ++step) {
+            int k = idx + step;
+            float g = gate[k];
+            float silu_val = g / (1.0f + (float)exp(-(double)g));
+            out[k] = silu_val * up[k];
+        }
+    }
+    for (; idx < total; ++idx) {
         float g = gate[idx];
         float silu_val = g / (1.0f + (float)exp(-(double)g));
         out[idx] = silu_val * up[idx];
@@ -94,6 +153,30 @@ static inline void npu_rope_tile(float* out, const float* in, const float* cos_t
             float s = sin_tab[t * dim + i];
             out[t * dim + i] = x1 * c - x2 * s;
             out[t * dim + i + half_dim] = x1 * s + x2 * c;
+        }
+    }
+}
+static inline void npu_flash_attention_tile(float* out, const float* q, const float* k, const float* v, int tokens, int dim) {
+    float scale = 1.0f / (float)sqrt((double)dim);
+    for (int i = 0; i < tokens; ++i) {
+        float max_s = -1e9f;
+        float sum_exp = 0.0f;
+        float s_row[128];
+        int num_j = (tokens < 128) ? tokens : 128;
+        for (int j = 0; j < num_j; ++j) {
+            float dot = 0.0f;
+            for (int d = 0; d < dim; ++d) dot += q[i * dim + d] * k[j * dim + d];
+            s_row[j] = dot * scale;
+            if (s_row[j] > max_s) max_s = s_row[j];
+        }
+        for (int j = 0; j < num_j; ++j) {
+            s_row[j] = (float)exp((double)(s_row[j] - max_s));
+            sum_exp += s_row[j];
+        }
+        for (int d = 0; d < dim; ++d) {
+            float acc = 0.0f;
+            for (int j = 0; j < num_j; ++j) acc += (s_row[j] / sum_exp) * v[j * dim + d];
+            out[i * dim + d] = acc;
         }
     }
 }

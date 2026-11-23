@@ -50,35 +50,94 @@ static inline void npu_silu_mul_tile(float* out, const float* gate, const float*
 static inline void npu_rope_tile(float* out, const float* in, const float* cos_tab, const float* sin_tab, int tokens, int dim) {
     asm volatile (".insn r 0x0b, 0, 6, %0, %1, %2\n" : : "r"(out), "r"(in), "r"(cos_tab) : "memory");
 }
+static inline void npu_flash_attention_tile(float* out, const float* q, const float* k, const float* v, int tokens, int dim) {
+    asm volatile (".insn r 0x0b, 0, 7, %0, %1, %2\n" : : "r"(out), "r"(q), "r"(k) : "memory");
+}
 #else
-// C Host Emulation Reference
+// C Host Emulation Reference (with 4-Way Loop Unrolling & Instruction-Level Parallelism)
 static inline void npu_dma_async(void* dst, const void* src, size_t bytes) {
     memcpy(dst, src, bytes);
 }
 static inline void npu_dma_wait(void) {}
 static inline void npu_matmul_tile(float* c, const float* a, const float* b, int bm, int bn, int bk) {
-    for (int i = 0; i < bm; ++i)
-        for (int k = 0; k < bk; ++k)
-            for (int j = 0; j < bn; ++j)
-                c[i * bn + j] += a[i * bk + k] * b[k * bn + j];
+    for (int i = 0; i < bm; ++i) {
+        for (int j = 0; j < bn; ++j) {
+            float sum0 = 0.0f;
+            int k = 0;
+            // 4-Way ILP Loop Unrolling along reduction dimension
+            for (; k <= bk - 4; k += 4) {
+                sum0 += a[i * bk + k + 0] * b[(k + 0) * bn + j];
+                sum0 += a[i * bk + k + 1] * b[(k + 1) * bn + j];
+                sum0 += a[i * bk + k + 2] * b[(k + 2) * bn + j];
+                sum0 += a[i * bk + k + 3] * b[(k + 3) * bn + j];
+            }
+            for (; k < bk; ++k) {
+                sum0 += a[i * bk + k] * b[k * bn + j];
+            }
+            c[i * bn + j] += sum0;
+        }
+    }
 }
 static inline void npu_bias_relu_tile(float* c, const float* bias, int bm, int bn) {
-    for (int i = 0; i < bm; ++i)
-        for (int j = 0; j < bn; ++j) {
-            float v = c[i * bn + j] + (bias ? bias[j] : 0.0f);
-            c[i * bn + j] = (v > 0.0f) ? v : 0.0f;
+    int total = bm * bn;
+    int idx = 0;
+    // 4-Way Unrolled Vector ReLU & Bias Add
+    for (; idx <= total - 4; idx += 4) {
+        for (int step = 0; step < 4; ++step) {
+            int j = (idx + step) % bn;
+            float v = c[idx + step] + (bias ? bias[j] : 0.0f);
+            c[idx + step] = (v > 0.0f) ? v : 0.0f;
         }
+    }
+    for (; idx < total; ++idx) {
+        int j = idx % bn;
+        float v = c[idx] + (bias ? bias[j] : 0.0f);
+        c[idx] = (v > 0.0f) ? v : 0.0f;
+    }
 }
 static inline void npu_rmsnorm_tile(float* out, const float* in, const float* weight, int tokens, int dim, float eps) {
     for (int t = 0; t < tokens; ++t) {
         float sum_sq = 0.0f;
-        for (int d = 0; d < dim; ++d) { float val = in[t * dim + d]; sum_sq += val * val; }
+        const float* in_ptr = &in[t * dim];
+        int d = 0;
+        // 4-Way Unrolled ILP Sum of Squares
+        for (; d <= dim - 4; d += 4) {
+            float v0 = in_ptr[d + 0];
+            float v1 = in_ptr[d + 1];
+            float v2 = in_ptr[d + 2];
+            float v3 = in_ptr[d + 3];
+            sum_sq += v0 * v0 + v1 * v1 + v2 * v2 + v3 * v3;
+        }
+        for (; d < dim; ++d) {
+            float v = in_ptr[d];
+            sum_sq += v * v;
+        }
         float rms = 1.0f / (float)sqrt((double)(sum_sq / dim + eps));
-        for (int d = 0; d < dim; ++d) { out[t * dim + d] = in[t * dim + d] * rms * weight[d]; }
+        float* out_ptr = &out[t * dim];
+        d = 0;
+        for (; d <= dim - 4; d += 4) {
+            out_ptr[d + 0] = in_ptr[d + 0] * rms * weight[d + 0];
+            out_ptr[d + 1] = in_ptr[d + 1] * rms * weight[d + 1];
+            out_ptr[d + 2] = in_ptr[d + 2] * rms * weight[d + 2];
+            out_ptr[d + 3] = in_ptr[d + 3] * rms * weight[d + 3];
+        }
+        for (; d < dim; ++d) {
+            out_ptr[d] = in_ptr[d] * rms * weight[d];
+        }
     }
 }
 static inline void npu_silu_mul_tile(float* out, const float* gate, const float* up, int tokens, int dim) {
-    for (int idx = 0; idx < tokens * dim; ++idx) {
+    int total = tokens * dim;
+    int idx = 0;
+    for (; idx <= total - 4; idx += 4) {
+        for (int step = 0; step < 4; ++step) {
+            int k = idx + step;
+            float g = gate[k];
+            float silu_val = g / (1.0f + (float)exp(-(double)g));
+            out[k] = silu_val * up[k];
+        }
+    }
+    for (; idx < total; ++idx) {
         float g = gate[idx];
         float silu_val = g / (1.0f + (float)exp(-(double)g));
         out[idx] = silu_val * up[idx];
@@ -94,6 +153,30 @@ static inline void npu_rope_tile(float* out, const float* in, const float* cos_t
             float s = sin_tab[t * dim + i];
             out[t * dim + i] = x1 * c - x2 * s;
             out[t * dim + i + half_dim] = x1 * s + x2 * c;
+        }
+    }
+}
+static inline void npu_flash_attention_tile(float* out, const float* q, const float* k, const float* v, int tokens, int dim) {
+    float scale = 1.0f / (float)sqrt((double)dim);
+    for (int i = 0; i < tokens; ++i) {
+        float max_s = -1e9f;
+        float sum_exp = 0.0f;
+        float s_row[128];
+        int num_j = (tokens < 128) ? tokens : 128;
+        for (int j = 0; j < num_j; ++j) {
+            float dot = 0.0f;
+            for (int d = 0; d < dim; ++d) dot += q[i * dim + d] * k[j * dim + d];
+            s_row[j] = dot * scale;
+            if (s_row[j] > max_s) max_s = s_row[j];
+        }
+        for (int j = 0; j < num_j; ++j) {
+            s_row[j] = (float)exp((double)(s_row[j] - max_s));
+            sum_exp += s_row[j];
+        }
+        for (int d = 0; d < dim; ++d) {
+            float acc = 0.0f;
+            for (int j = 0; j < num_j; ++j) acc += (s_row[j] / sum_exp) * v[j * dim + d];
+            out[i * dim + d] = acc;
         }
     }
 }
@@ -113,50 +196,19 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 2: Node 'deepseek_layer_0_mla_kv_a_proj_mm' (Op: matmul)
+    // Step 2: Node 'fused_horizontal_deepseek_layer_0_mla_kv_a_proj_mm_group' (Op: fused_horizontal_qkv_matmul)
     // ==================================================================
     {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 360448);
-        float* dev_W = (float*)(dram_base + 311296);
-        float* dev_Y = (float*)(dram_base + 311296);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 32];
-        static float sram_b[2][32 * 32];
-        static float sram_c[16 * 32];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 32; n += 32) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 32 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 32 + n], 32 * 32 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 32) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 32 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 32)], 16 * 32 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 32) * 32 + n], 32 * 32 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 32, 32);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 32 + n], sram_c, 16 * 32 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
+        float* x = (float*)(dram_base + 360448);
+        float* w_0   = (float*)(dram_base + 311296);
+        float* out_0 = (float*)(dram_base + 311296);
+        npu_matmul_tile(out_0, x, w_0, 16, 32, 64);
+        float* w_1   = (float*)(dram_base + 356352);
+        float* out_1 = (float*)(dram_base + 337920);
+        npu_matmul_tile(out_1, x, w_1, 16, 16, 64);
+        float* w_2   = (float*)(dram_base + 335872);
+        float* out_2 = (float*)(dram_base + 335872);
+        npu_matmul_tile(out_2, x, w_2, 16, 32, 64);
     }
 
     // ==================================================================
@@ -165,318 +217,28 @@ void run_model(uint8_t* dram_base, int core_id) {
     {
         float* in  = (float*)(dram_base + 311296);
         float* w   = (float*)(dram_base + 368896);
-        float* out = (float*)(dram_base + 315392);
+        float* out = (float*)(dram_base + 311296);
         npu_rmsnorm_tile(out, in, w, 16, 32, 1e-06f);
     }
 
     // ==================================================================
-    // Step 4: Node 'deepseek_layer_0_mla_kv_b_proj_k_mm' (Op: matmul)
+    // Step 4: Node 'fused_horizontal_deepseek_layer_0_mla_kv_b_proj_k_mm_group' (Op: fused_horizontal_qkv_matmul)
     // ==================================================================
     {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 315392);
-        float* dev_W = (float*)(dram_base + 319488);
-        float* dev_Y = (float*)(dram_base + 311296);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 64; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 32 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 64 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 32; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 32) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 32 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 64 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 64 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
+        float* x = (float*)(dram_base + 311296);
+        float* w_0   = (float*)(dram_base + 319488);
+        float* out_0 = (float*)(dram_base + 311296);
+        npu_matmul_tile(out_0, x, w_0, 16, 64, 32);
+        float* w_1   = (float*)(dram_base + 327680);
+        float* out_1 = (float*)(dram_base + 315392);
+        npu_matmul_tile(out_1, x, w_1, 16, 64, 32);
     }
 
     // ==================================================================
-    // Step 5: Node 'deepseek_layer_0_mla_kv_b_proj_v_mm' (Op: matmul)
+    // Step 5: Node 'deepseek_layer_0_mla_kr_rope' (Op: rope)
     // ==================================================================
     {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 315392);
-        float* dev_W = (float*)(dram_base + 327680);
-        float* dev_Y = (float*)(dram_base + 315392);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 64; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 32 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 64 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 32; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 32) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 32 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 64 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 64 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 6: Node 'deepseek_layer_0_mla_k_rope_proj_mm' (Op: matmul)
-    // ==================================================================
-    {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 360448);
-        float* dev_W = (float*)(dram_base + 356352);
-        float* dev_Y = (float*)(dram_base + 319488);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 32];
-        static float sram_b[2][32 * 16];
-        static float sram_c[16 * 16];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 16; n += 16) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 32 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 16 + n], 32 * 16 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 32) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 32 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 32)], 16 * 32 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 32) * 16 + n], 32 * 16 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 16, 32);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 16 + n], sram_c, 16 * 16 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 7: Node 'deepseek_layer_0_mla_kr_rope' (Op: rope)
-    // ==================================================================
-    {
-        float* in   = (float*)(dram_base + 319488);
-        float* c_tab= (float*)(dram_base + 366592);
-        float* s_tab= (float*)(dram_base + 367616);
-        float* out  = (float*)(dram_base + 325632);
-        npu_rope_tile(out, in, c_tab, s_tab, 16, 16);
-    }
-
-    // ==================================================================
-    // Step 8: Node 'deepseek_layer_0_mla_q_a_proj_mm' (Op: matmul)
-    // ==================================================================
-    {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 360448);
-        float* dev_W = (float*)(dram_base + 335872);
-        float* dev_Y = (float*)(dram_base + 319488);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 32];
-        static float sram_b[2][32 * 32];
-        static float sram_c[16 * 32];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 32; n += 32) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 32 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 32 + n], 32 * 32 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 32) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 32 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 32)], 16 * 32 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 32) * 32 + n], 32 * 32 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 32, 32);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 32 + n], sram_c, 16 * 32 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 9: Node 'deepseek_layer_0_mla_q_a_norm' (Op: rmsnorm)
-    // ==================================================================
-    {
-        float* in  = (float*)(dram_base + 319488);
-        float* w   = (float*)(dram_base + 369024);
-        float* out = (float*)(dram_base + 323584);
-        npu_rmsnorm_tile(out, in, w, 16, 32, 1e-06f);
-    }
-
-    // ==================================================================
-    // Step 10: Node 'deepseek_layer_0_mla_q_b_proj_mm' (Op: matmul)
-    // ==================================================================
-    {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 323584);
-        float* dev_W = (float*)(dram_base + 344064);
-        float* dev_Y = (float*)(dram_base + 319488);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 64; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 32 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 64 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 32; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 32) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 32 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 64 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 64 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 11: Node 'deepseek_layer_0_mla_q_rope_proj_mm' (Op: matmul)
-    // ==================================================================
-    {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 323584);
-        float* dev_W = (float*)(dram_base + 364544);
-        float* dev_Y = (float*)(dram_base + 323584);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 32];
-        static float sram_b[2][32 * 16];
-        static float sram_c[16 * 16];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 16; n += 16) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 32 + 0], 16 * 32 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 16 + n], 32 * 16 * sizeof(float));
-
-                for (int k = 0; k < 32; k += 32) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 32 < 32) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 32 + (k + 32)], 16 * 32 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 32) * 16 + n], 32 * 16 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 16, 32);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 16 + n], sram_c, 16 * 16 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 12: Node 'deepseek_layer_0_mla_qr_rope' (Op: rope)
-    // ==================================================================
-    {
-        float* in   = (float*)(dram_base + 323584);
+        float* in   = (float*)(dram_base + 337920);
         float* c_tab= (float*)(dram_base + 366592);
         float* s_tab= (float*)(dram_base + 367616);
         float* out  = (float*)(dram_base + 323584);
@@ -484,7 +246,41 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 13: Node 'deepseek_layer_0_mla_kc_t' (Op: transpose)
+    // Step 6: Node 'deepseek_layer_0_mla_q_a_norm' (Op: rmsnorm)
+    // ==================================================================
+    {
+        float* in  = (float*)(dram_base + 335872);
+        float* w   = (float*)(dram_base + 369024);
+        float* out = (float*)(dram_base + 319488);
+        npu_rmsnorm_tile(out, in, w, 16, 32, 1e-06f);
+    }
+
+    // ==================================================================
+    // Step 7: Node 'fused_horizontal_deepseek_layer_0_mla_q_b_proj_mm_group' (Op: fused_horizontal_qkv_matmul)
+    // ==================================================================
+    {
+        float* x = (float*)(dram_base + 319488);
+        float* w_0   = (float*)(dram_base + 344064);
+        float* out_0 = (float*)(dram_base + 319488);
+        npu_matmul_tile(out_0, x, w_0, 16, 64, 32);
+        float* w_1   = (float*)(dram_base + 364544);
+        float* out_1 = (float*)(dram_base + 324608);
+        npu_matmul_tile(out_1, x, w_1, 16, 16, 32);
+    }
+
+    // ==================================================================
+    // Step 8: Node 'deepseek_layer_0_mla_qr_rope' (Op: rope)
+    // ==================================================================
+    {
+        float* in   = (float*)(dram_base + 324608);
+        float* c_tab= (float*)(dram_base + 366592);
+        float* s_tab= (float*)(dram_base + 367616);
+        float* out  = (float*)(dram_base + 324608);
+        npu_rope_tile(out, in, c_tab, s_tab, 16, 16);
+    }
+
+    // ==================================================================
+    // Step 9: Node 'deepseek_layer_0_mla_kc_t' (Op: transpose)
     // ==================================================================
     {
         float* in  = (float*)(dram_base + 311296);
@@ -497,7 +293,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 14: Node 'deepseek_layer_0_mla_score_c' (Op: matmul)
+    // Step 10: Node 'deepseek_layer_0_mla_score_c' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -544,11 +340,11 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 15: Node 'deepseek_layer_0_mla_kr_t' (Op: transpose)
+    // Step 11: Node 'deepseek_layer_0_mla_kr_t' (Op: transpose)
     // ==================================================================
     {
-        float* in  = (float*)(dram_base + 325632);
-        float* out = (float*)(dram_base + 325632);
+        float* in  = (float*)(dram_base + 323584);
+        float* out = (float*)(dram_base + 323584);
         for (int r = 0; r < 16; ++r) {
             for (int c = 0; c < 16; ++c) {
                 out[c * 16 + r] = in[r * 16 + c];
@@ -557,12 +353,12 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 16: Node 'deepseek_layer_0_mla_score_r' (Op: matmul)
+    // Step 12: Node 'deepseek_layer_0_mla_score_r' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 323584);
-        float* dev_W = (float*)(dram_base + 325632);
+        float* dev_X = (float*)(dram_base + 324608);
+        float* dev_W = (float*)(dram_base + 323584);
         float* dev_Y = (float*)(dram_base + 312320);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
@@ -604,7 +400,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 17: Node 'deepseek_layer_0_mla_score_add' (Op: add)
+    // Step 13: Node 'deepseek_layer_0_mla_score_add' (Op: add)
     // ==================================================================
     {
         float* a   = (float*)(dram_base + 311296);
@@ -614,7 +410,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 18: Node 'deepseek_layer_0_mla_softmax' (Op: softmax)
+    // Step 14: Node 'deepseek_layer_0_mla_softmax' (Op: softmax)
     // ==================================================================
     {
         float* in  = (float*)(dram_base + 311296);
@@ -629,7 +425,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 19: Node 'deepseek_layer_0_mla_attn_v' (Op: matmul)
+    // Step 15: Node 'deepseek_layer_0_mla_attn_v' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -676,7 +472,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 20: Node 'deepseek_layer_0_mla_out_proj_mm' (Op: matmul)
+    // Step 16: Node 'deepseek_layer_0_mla_out_proj_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -723,121 +519,56 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 21: Node 'deepseek_layer_0_res1' (Op: add)
+    // Step 17: Node 'fused_add_rmsnorm_deepseek_layer_0_res1' (Op: fused_add_rmsnorm)
     // ==================================================================
     {
-        float* a   = (float*)(dram_base + 352256);
-        float* b   = (float*)(dram_base + 294912);
-        float* out = (float*)(dram_base + 294912);
-        for (int i = 0; i < 1024; ++i) out[i] = a[i] + b[i];
-    }
-
-    // ==================================================================
-    // Step 22: Node 'deepseek_layer_0_post_norm' (Op: rmsnorm)
-    // ==================================================================
-    {
-        float* in  = (float*)(dram_base + 294912);
-        float* w   = (float*)(dram_base + 368640);
-        float* out = (float*)(dram_base + 299008);
-        npu_rmsnorm_tile(out, in, w, 16, 64, 1e-06f);
-    }
-
-    // ==================================================================
-    // Step 23: Node 'deepseek_layer_0_moe_shared_exp_gate_mm' (Op: matmul)
-    // ==================================================================
-    {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 299008);
-        float* dev_W = (float*)(dram_base + 0);
-        float* dev_Y = (float*)(dram_base + 0);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 128; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 128 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 128 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 128 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
+        float* x      = (float*)(dram_base + 352256);
+        float* branch = (float*)(dram_base + 294912);
+        float* w      = (float*)(dram_base + 368640);
+        float* res    = (float*)(dram_base + 294912);
+        float* norm   = (float*)(dram_base + 299008);
+        for (int r = 0; r < 16; ++r) {
+            float sum_sq = 0.0f;
+            int base_idx = r * 64;
+            for (int c = 0; c < 64; ++c) {
+                float v = x[base_idx + c] + branch[base_idx + c];
+                res[base_idx + c] = v;
+                sum_sq += v * v;
+            }
+            float rms = 1.0f / (float)sqrt((double)(sum_sq / 64 + 1e-06f));
+            for (int c = 0; c < 64; ++c) {
+                norm[base_idx + c] = res[base_idx + c] * rms * w[c];
             }
         }
     }
 
     // ==================================================================
-    // Step 24: Node 'deepseek_layer_0_moe_shared_exp_up_mm' (Op: matmul)
+    // Step 18: Node 'fused_horizontal_deepseek_layer_0_moe_shared_exp_gate_mm_group' (Op: fused_horizontal_qkv_matmul)
     // ==================================================================
     {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 299008);
-        float* dev_W = (float*)(dram_base + 32768);
-        float* dev_Y = (float*)(dram_base + 8192);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 128; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 128 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 128 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 128 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
+        float* x = (float*)(dram_base + 299008);
+        float* w_0   = (float*)(dram_base + 0);
+        float* out_0 = (float*)(dram_base + 0);
+        npu_matmul_tile(out_0, x, w_0, 16, 128, 64);
+        float* w_1   = (float*)(dram_base + 32768);
+        float* out_1 = (float*)(dram_base + 8192);
+        npu_matmul_tile(out_1, x, w_1, 16, 128, 64);
+        float* w_2   = (float*)(dram_base + 98304);
+        float* out_2 = (float*)(dram_base + 16384);
+        npu_matmul_tile(out_2, x, w_2, 16, 128, 64);
+        float* w_3   = (float*)(dram_base + 131072);
+        float* out_3 = (float*)(dram_base + 24576);
+        npu_matmul_tile(out_3, x, w_3, 16, 128, 64);
+        float* w_4   = (float*)(dram_base + 196608);
+        float* out_4 = (float*)(dram_base + 32768);
+        npu_matmul_tile(out_4, x, w_4, 16, 128, 64);
+        float* w_5   = (float*)(dram_base + 229376);
+        float* out_5 = (float*)(dram_base + 40960);
+        npu_matmul_tile(out_5, x, w_5, 16, 128, 64);
     }
 
     // ==================================================================
-    // Step 25: Node 'fused_swiglu_deepseek_layer_0_moe_shared_exp_silu' (Op: fused_silu_mul)
+    // Step 19: Node 'fused_swiglu_deepseek_layer_0_moe_shared_exp_silu' (Op: fused_silu_mul)
     // ==================================================================
     {
         float* g   = (float*)(dram_base + 0);
@@ -847,13 +578,13 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 26: Node 'deepseek_layer_0_moe_shared_exp_down_mm' (Op: matmul)
+    // Step 20: Node 'deepseek_layer_0_moe_shared_exp_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 0);
         float* dev_W = (float*)(dram_base + 65536);
-        float* dev_Y = (float*)(dram_base + 16384);
+        float* dev_Y = (float*)(dram_base + 8192);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
@@ -894,117 +625,23 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 27: Node 'deepseek_layer_0_moe_expert_0_gate_mm' (Op: matmul)
+    // Step 21: Node 'fused_swiglu_deepseek_layer_0_moe_expert_0_silu' (Op: fused_silu_mul)
     // ==================================================================
     {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 299008);
-        float* dev_W = (float*)(dram_base + 98304);
-        float* dev_Y = (float*)(dram_base + 0);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 128; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 128 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 128 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 128 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 28: Node 'deepseek_layer_0_moe_expert_0_up_mm' (Op: matmul)
-    // ==================================================================
-    {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 299008);
-        float* dev_W = (float*)(dram_base + 131072);
-        float* dev_Y = (float*)(dram_base + 8192);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 128; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 128 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 128 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 128 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 29: Node 'fused_swiglu_deepseek_layer_0_moe_expert_0_silu' (Op: fused_silu_mul)
-    // ==================================================================
-    {
-        float* g   = (float*)(dram_base + 0);
-        float* u   = (float*)(dram_base + 8192);
+        float* g   = (float*)(dram_base + 16384);
+        float* u   = (float*)(dram_base + 24576);
         float* out = (float*)(dram_base + 0);
         npu_silu_mul_tile(out, g, u, 16, 128);
     }
 
     // ==================================================================
-    // Step 30: Node 'deepseek_layer_0_moe_expert_0_down_mm' (Op: matmul)
+    // Step 22: Node 'deepseek_layer_0_moe_expert_0_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 0);
         float* dev_W = (float*)(dram_base + 163840);
-        float* dev_Y = (float*)(dram_base + 20480);
+        float* dev_Y = (float*)(dram_base + 12288);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
@@ -1045,111 +682,17 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 31: Node 'deepseek_layer_0_moe_expert_1_gate_mm' (Op: matmul)
+    // Step 23: Node 'fused_swiglu_deepseek_layer_0_moe_expert_1_silu' (Op: fused_silu_mul)
     // ==================================================================
     {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 299008);
-        float* dev_W = (float*)(dram_base + 196608);
-        float* dev_Y = (float*)(dram_base + 0);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 128; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 128 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 128 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 128 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 32: Node 'deepseek_layer_0_moe_expert_1_up_mm' (Op: matmul)
-    // ==================================================================
-    {
-        // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 299008);
-        float* dev_W = (float*)(dram_base + 229376);
-        float* dev_Y = (float*)(dram_base + 8192);
-
-        // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
-        static float sram_a[2][16 * 16];
-        static float sram_b[2][16 * 64];
-        static float sram_c[16 * 64];
-
-        // IREE Flow: Multi-core loop partitioning over dimension M
-        int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
-        int m_start = core_id * chunk_m;
-        int m_end   = (m_start + chunk_m < 16) ? (m_start + chunk_m) : 16;
-
-        for (int m = m_start; m < m_end; m += 16) {
-            for (int n = 0; n < 128; n += 64) {
-                memset(sram_c, 0, sizeof(sram_c));
-                int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 128 + n], 16 * 64 * sizeof(float));
-
-                for (int k = 0; k < 64; k += 16) {
-                    npu_dma_wait(); // Wait for tile [p]
-                    int next_p = 1 - p;
-                    if (k + 16 < 64) {
-                        // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 16)], 16 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 128 + n], 16 * 64 * sizeof(float));
-                    }
-                    // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 16, 64, 16);
-                    p = next_p;
-                }
-
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 128 + n], sram_c, 16 * 64 * sizeof(float));
-                npu_dma_wait();
-            }
-        }
-    }
-
-    // ==================================================================
-    // Step 33: Node 'fused_swiglu_deepseek_layer_0_moe_expert_1_silu' (Op: fused_silu_mul)
-    // ==================================================================
-    {
-        float* g   = (float*)(dram_base + 0);
-        float* u   = (float*)(dram_base + 8192);
+        float* g   = (float*)(dram_base + 32768);
+        float* u   = (float*)(dram_base + 40960);
         float* out = (float*)(dram_base + 0);
         npu_silu_mul_tile(out, g, u, 16, 128);
     }
 
     // ==================================================================
-    // Step 34: Node 'deepseek_layer_0_moe_expert_1_down_mm' (Op: matmul)
+    // Step 24: Node 'deepseek_layer_0_moe_expert_1_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -1196,27 +739,27 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 35: Node 'deepseek_layer_0_moe_acc_1' (Op: add)
+    // Step 25: Node 'deepseek_layer_0_moe_acc_1' (Op: add)
     // ==================================================================
     {
-        float* a   = (float*)(dram_base + 20480);
+        float* a   = (float*)(dram_base + 12288);
         float* b   = (float*)(dram_base + 0);
         float* out = (float*)(dram_base + 0);
         for (int i = 0; i < 1024; ++i) out[i] = a[i] + b[i];
     }
 
     // ==================================================================
-    // Step 36: Node 'deepseek_layer_0_moe_combine' (Op: add)
+    // Step 26: Node 'deepseek_layer_0_moe_combine' (Op: add)
     // ==================================================================
     {
-        float* a   = (float*)(dram_base + 16384);
+        float* a   = (float*)(dram_base + 8192);
         float* b   = (float*)(dram_base + 0);
         float* out = (float*)(dram_base + 0);
         for (int i = 0; i < 1024; ++i) out[i] = a[i] + b[i];
     }
 
     // ==================================================================
-    // Step 37: Node 'deepseek_layer_0_res2' (Op: add)
+    // Step 27: Node 'deepseek_layer_0_res2' (Op: add)
     // ==================================================================
     {
         float* a   = (float*)(dram_base + 294912);

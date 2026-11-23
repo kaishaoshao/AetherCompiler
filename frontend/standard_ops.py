@@ -114,6 +114,47 @@ def _ref_fused_matmul_add(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]
     mm = _ref_matmul([x, w], attrs)[0]
     return _ref_add([mm, b], attrs)
 
+def _ref_fused_horizontal_qkv_matmul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
+    x = inputs[0]
+    weights = inputs[1:]
+    outputs = []
+    for w in weights:
+        outputs.append(_ref_matmul([x, w], attrs)[0])
+    return outputs
+
+def _ref_fused_add_rmsnorm(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
+    x, branch, weight = inputs[0], inputs[1], inputs[2]
+    res = _ref_add([x, branch], attrs)[0]
+    norm = _ref_rmsnorm([res, weight], attrs)[0]
+    return [res, norm]
+
+def _ref_fused_flash_attention(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
+    Q, K, V = inputs[0], inputs[1], inputs[2]
+    L = len(Q)
+    D = len(Q[0])
+    scale = attrs.get("scale", 1.0 / math.sqrt(D))
+
+    # Tiled online safe softmax computation
+    S = [[0.0] * L for _ in range(L)]
+    for i in range(L):
+        for j in range(L):
+            dot = sum(Q[i][d] * K[j][d] for d in range(D))
+            S[i][j] = dot * scale
+
+    P = []
+    for row in S:
+        max_v = max(row)
+        exp_row = [math.exp(v - max_v) for v in row]
+        sum_exp = sum(exp_row)
+        P.append([v / sum_exp for v in exp_row])
+
+    O = [[0.0] * D for _ in range(L)]
+    for i in range(L):
+        for d in range(D):
+            O[i][d] = sum(P[i][j] * V[j][d] for j in range(L))
+
+    return [O]
+
 
 # --- Register Standard Operators ---
 def register_standard_ops():
@@ -293,6 +334,67 @@ def register_standard_ops():
         traits={OpTrait.FUSED_COMPOSITE, OpTrait.MATMUL_LIKE},
         infer_shape_fn=lambda in_shapes, attrs: [(in_shapes[0][0], in_shapes[1][1])],
         eval_ref_fn=_ref_fused_matmul_add
+    ))
+
+    # Fused Horizontal QKV MatMul (Shares Input X across multiple projection weights)
+    OpRegistry.register(OpDefinition(
+        name="fused_horizontal_qkv_matmul",
+        traits={OpTrait.FUSED_COMPOSITE, OpTrait.MATMUL_LIKE},
+        infer_shape_fn=lambda in_shapes, attrs: [(in_shapes[0][0], w_shape[1]) for w_shape in in_shapes[1:]],
+        eval_ref_fn=_ref_fused_horizontal_qkv_matmul,
+        emit_c_fn=lambda node, ctx: [
+            f"        float* x = (float*)(dram_base + {node.inputs[0].allocated_offset});"
+        ] + [
+            line for idx, (w, out) in enumerate(zip(node.inputs[1:], node.outputs))
+            for line in (
+                f"        float* w_{idx}   = (float*)(dram_base + {w.allocated_offset});",
+                f"        float* out_{idx} = (float*)(dram_base + {out.allocated_offset});",
+                f"        npu_matmul_tile(out_{idx}, x, w_{idx}, {node.inputs[0].shape[0]}, {w.shape[1]}, {node.inputs[0].shape[1]});"
+            )
+        ]
+    ))
+
+    # Fused Residual Add + RMSNorm
+    OpRegistry.register(OpDefinition(
+        name="fused_add_rmsnorm",
+        traits={OpTrait.FUSED_COMPOSITE, OpTrait.ELEMENTWISE},
+        infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0], in_shapes[0]],
+        eval_ref_fn=_ref_fused_add_rmsnorm,
+        emit_c_fn=lambda node, ctx: [
+            f"        float* x      = (float*)(dram_base + {node.inputs[0].allocated_offset});",
+            f"        float* branch = (float*)(dram_base + {node.inputs[1].allocated_offset});",
+            f"        float* w      = (float*)(dram_base + {node.inputs[2].allocated_offset});",
+            f"        float* res    = (float*)(dram_base + {node.outputs[0].allocated_offset});",
+            f"        float* norm   = (float*)(dram_base + {node.outputs[1].allocated_offset});",
+            f"        for (int r = 0; r < {node.inputs[0].shape[0]}; ++r) {{",
+            f"            float sum_sq = 0.0f;",
+            f"            int base_idx = r * {node.inputs[0].shape[1]};",
+            f"            for (int c = 0; c < {node.inputs[0].shape[1]}; ++c) {{",
+            f"                float v = x[base_idx + c] + branch[base_idx + c];",
+            f"                res[base_idx + c] = v;",
+            f"                sum_sq += v * v;",
+            f"            }}",
+            f"            float rms = 1.0f / (float)sqrt((double)(sum_sq / {node.inputs[0].shape[1]} + {node.attrs.get('eps', 1e-5)}f));",
+            f"            for (int c = 0; c < {node.inputs[0].shape[1]}; ++c) {{",
+            f"                norm[base_idx + c] = res[base_idx + c] * rms * w[c];",
+            f"            }}",
+            f"        }}"
+        ]
+    ))
+
+    # Fused FlashAttention (Tiled Online Safe Softmax)
+    OpRegistry.register(OpDefinition(
+        name="fused_flash_attention",
+        traits={OpTrait.FUSED_COMPOSITE, OpTrait.MATMUL_LIKE},
+        infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
+        eval_ref_fn=_ref_fused_flash_attention,
+        emit_c_fn=lambda node, ctx: [
+            f"        float* q   = (float*)(dram_base + {node.inputs[0].allocated_offset});",
+            f"        float* k   = (float*)(dram_base + {node.inputs[1].allocated_offset});",
+            f"        float* v   = (float*)(dram_base + {node.inputs[2].allocated_offset});",
+            f"        float* out = (float*)(dram_base + {node.outputs[0].allocated_offset});",
+            f"        npu_flash_attention_tile(out, q, k, v, {node.inputs[0].shape[0]}, {node.inputs[0].shape[1]});"
+        ]
     ))
 
 # Automatically initialize standard ops upon import

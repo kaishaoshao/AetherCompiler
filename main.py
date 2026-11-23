@@ -39,7 +39,9 @@ from midend import (
     OperatorFusionPass,
     MemoryPlanningPass,
     FlowDispatchPass,
-    TilingAndPipelinePass
+    TilingAndPipelinePass,
+    ConstantFoldingAndPrepackPass,
+    HorizontalFusionPass
 )
 from backend import RiscvNpuCodeGenerator
 from runtime import VirtualNPUSimulator, TimelineSemaphore, CommandBuffer, AsyncDeviceQueue
@@ -52,10 +54,19 @@ def compile_and_verify_model(model_name: str, graph: Graph, input_tensor: Tensor
     # 1. Level 1: Original High-Level Graph
     graph.print_graph(f"1. Original High-Level Graph [{model_name}]")
 
-    # 2. Middle-End Pass 1: Structural Operator Fusion (MAX MAP)
+    # 2. Middle-End Passes:
+    # Pass 1: Constant Folding & Weight Pre-packing
+    prepack_pass = ConstantFoldingAndPrepackPass(sram_capacity_bytes=sram_kb * 1024)
+    prepacked_graph, prepack_meta = prepack_pass.run(graph)
+
+    # Pass 2: Horizontal Sibling Fusion (QKV Projection Fusion)
+    h_fusion_pass = HorizontalFusionPass()
+    h_fused_graph = h_fusion_pass.run(prepacked_graph)
+
+    # Pass 3: Structural Operator Fusion (MAX MAP, FlashAttention, SwiGLU, GeGLU, FusedAddRMSNorm)
     fusion_pass = OperatorFusionPass()
-    fused_graph = fusion_pass.run(graph)
-    fused_graph.print_graph(f"2. Fused Graph (After MAX MAP Fusion Pass)")
+    fused_graph = fusion_pass.run(h_fused_graph)
+    fused_graph.print_graph(f"2. Fused Graph (After Full Fusion Passes)")
     print(f"  [Fusion Stats] Reduced node count from {len(graph.nodes)} -> {len(fused_graph.nodes)} ops.")
 
     # 3. Middle-End Pass 2: Dynamic Memory Planning with Zero-Copy View Aliasing (MAX MGP)

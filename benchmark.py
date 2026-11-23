@@ -44,7 +44,9 @@ from midend import (
     OperatorFusionPass,
     MemoryPlanningPass,
     FlowDispatchPass,
-    TilingAndPipelinePass
+    TilingAndPipelinePass,
+    ConstantFoldingAndPrepackPass,
+    HorizontalFusionPass
 )
 from runtime import (
     VirtualNPUSimulator,
@@ -106,18 +108,29 @@ def run_benchmark_for_model(
     4. Executes both graphs on VirtualNPUSimulator with identical inputs.
     5. Verifies bit-exact numerical equality.
     """
-    # 1. Build Baseline Graph
+    # 1. Build Baseline Graph (Clean independent instance)
     t0 = time.perf_counter()
-    res = builder_fn()
-    baseline_graph = res[0] if isinstance(res, tuple) else res
+    res_base = builder_fn()
+    baseline_graph = res_base[0] if isinstance(res_base, tuple) else res_base
     naive_bytes = assign_naive_memory_offsets(baseline_graph)
 
-    # 2. Run Compiler Middle-End Passes
-    # Pass 1: Structural Fusion (MAX MAP)
-    fusion_pass = OperatorFusionPass()
-    fused_graph = fusion_pass.run(baseline_graph)
+    # 2. Build and Optimize Pipeline Graph
+    res_opt = builder_fn()
+    opt_graph = res_opt[0] if isinstance(res_opt, tuple) else res_opt
 
-    # Pass 2: Dynamic Memory Planning (MAX MGP)
+    # Pass 1: Constant Folding & Weight Pre-packing
+    prepack_pass = ConstantFoldingAndPrepackPass(sram_capacity_bytes=16 * 1024)
+    prepacked_graph, _ = prepack_pass.run(opt_graph)
+
+    # Pass 2: Horizontal Sibling Fusion (QKV Projection Fusion)
+    h_fusion_pass = HorizontalFusionPass()
+    h_fused_graph = h_fusion_pass.run(prepacked_graph)
+
+    # Pass 3: Structural Pattern Fusion (FlashAttention, SwiGLU, GeGLU, Residual+RMSNorm)
+    fusion_pass = OperatorFusionPass()
+    fused_graph = fusion_pass.run(h_fused_graph)
+
+    # Pass 4: Dynamic Memory Planning (MAX MGP)
     mem_planner = MemoryPlanningPass(alignment=64)
     _, planned_bytes, _ = mem_planner.run(fused_graph)
 

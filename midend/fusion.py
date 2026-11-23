@@ -176,15 +176,106 @@ class MatMulAddPattern(FusionPattern):
         )
         return fused_node, {node, add_node}
 
+class FusedAddRMSNormPattern(FusionPattern):
+    """Fuses Residual Add(x, branch) + RMSNorm(..., weight) -> FusedAddRMSNorm."""
+    def match_and_rewrite(
+        self,
+        node: OpNode,
+        graph: Graph,
+        consumer_count: Dict[str, int],
+        skip_nodes: Optional[Set[OpNode]] = None
+    ) -> Optional[Tuple[OpNode, Set[OpNode]]]:
+        if node.op_type != "add":
+            return None
+
+        add_out = node.outputs[0]
+        # Look for rmsnorm consuming add_out
+        rmsnorm_node = next(
+            (n for n in graph.nodes if n.op_type == "rmsnorm" and add_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
+        if not rmsnorm_node:
+            return None
+
+        weight = rmsnorm_node.inputs[1]
+        fused_node = OpNode(
+            op_type="fused_add_rmsnorm",
+            inputs=[node.inputs[0], node.inputs[1], weight],
+            outputs=[add_out, rmsnorm_node.outputs[0]],
+            attrs=dict(rmsnorm_node.attrs),
+            name=f"fused_add_rmsnorm_{node.name}"
+        )
+        return fused_node, {node, rmsnorm_node}
+
+class FlashAttentionPattern(FusionPattern):
+    """
+    Fuses Multi-Head Attention Subgraph:
+    Transpose(K) -> MatMul(Q, K^T) -> Softmax(S) -> MatMul(P, V) -> FusedFlashAttention(Q, K, V).
+    Eliminates intermediate S (L x L) and P (L x L) memory allocations and DRAM traffic.
+    """
+    def match_and_rewrite(
+        self,
+        node: OpNode,
+        graph: Graph,
+        consumer_count: Dict[str, int],
+        skip_nodes: Optional[Set[OpNode]] = None
+    ) -> Optional[Tuple[OpNode, Set[OpNode]]]:
+        if node.op_type != "transpose":
+            return None
+
+        k_trans_out = node.outputs[0]
+        if consumer_count.get(k_trans_out.name, 0) != 1:
+            return None
+
+        # 1. Look for qk = matmul(q, k_trans_out)
+        qk_node = next(
+            (n for n in graph.nodes if n.op_type == "matmul" and k_trans_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
+        if not qk_node or consumer_count.get(qk_node.outputs[0].name, 0) != 1:
+            return None
+
+        # 2. Look for softmax(qk_out)
+        qk_out = qk_node.outputs[0]
+        softmax_node = next(
+            (n for n in graph.nodes if n.op_type == "softmax" and qk_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
+        if not softmax_node or consumer_count.get(softmax_node.outputs[0].name, 0) != 1:
+            return None
+
+        # 3. Look for attn_v = matmul(softmax_out, v)
+        p_out = softmax_node.outputs[0]
+        attn_v_node = next(
+            (n for n in graph.nodes if n.op_type == "matmul" and p_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
+        if not attn_v_node:
+            return None
+
+        q_tensor = [t for t in qk_node.inputs if t != k_trans_out][0]
+        k_tensor = node.inputs[0]
+        v_tensor = [t for t in attn_v_node.inputs if t != p_out][0]
+
+        fused_node = OpNode(
+            op_type="fused_flash_attention",
+            inputs=[q_tensor, k_tensor, v_tensor],
+            outputs=[attn_v_node.outputs[0]],
+            name=f"fused_flash_attn_{attn_v_node.name}"
+        )
+        return fused_node, {node, qk_node, softmax_node, attn_v_node}
+
 
 class OperatorFusionPass:
     def __init__(self, patterns: Optional[List[FusionPattern]] = None):
         # Open registry of fusion patterns: effortlessly extensible
         self.patterns = patterns or [
+            FlashAttentionPattern(),
             MatMulAddReLUPattern(),
             MatMulAddPattern(),
             SwiGLUPattern(),
             GeGLUPattern(),
+            FusedAddRMSNormPattern(),
         ]
 
     def register_pattern(self, pattern: FusionPattern):
