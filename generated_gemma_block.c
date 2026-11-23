@@ -512,19 +512,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 15: Node 'gemma_layer_0_mlp_gelu' (Op: gelu)
-    // ==================================================================
-    {
-        float* in  = (float*)(dram_base + 0);
-        float* out = (float*)(dram_base + 0);
-        for (int idx = 0; idx < 2048; ++idx) {
-            float val = in[idx];
-            out[idx] = 0.5f * val * (1.0f + (float)erff(val / 1.41421356f));
-        }
-    }
-
-    // ==================================================================
-    // Step 16: Node 'gemma_layer_0_mlp_up_mm' (Op: matmul)
+    // Step 15: Node 'gemma_layer_0_mlp_up_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -571,14 +559,21 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 17: Node 'gemma_layer_0_mlp_gating_mul' (Op: mul)
+    // Step 16: Node 'fused_geglu_gemma_layer_0_mlp_gelu' (Op: fused_gelu_mul)
     // ==================================================================
     {
-        // Default generic execution for 'mul'
+        float* g   = (float*)(dram_base + 0);
+        float* u   = (float*)(dram_base + 8192);
+        float* out = (float*)(dram_base + 0);
+        for (int idx = 0; idx < 2048; ++idx) {
+            float val = g[idx];
+            float gelu_val = 0.5f * val * (1.0f + (float)erff(val / 1.41421356f));
+            out[idx] = gelu_val * u[idx];
+        }
     }
 
     // ==================================================================
-    // Step 18: Node 'gemma_layer_0_mlp_down_mm' (Op: matmul)
+    // Step 17: Node 'gemma_layer_0_mlp_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -625,7 +620,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 19: Node 'gemma_layer_0_res2' (Op: add)
+    // Step 18: Node 'gemma_layer_0_res2' (Op: add)
     // ==================================================================
     {
         float* a   = (float*)(dram_base + 98304);

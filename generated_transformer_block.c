@@ -490,23 +490,13 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 13: Node 'fused_swiglu_transformer_layer_0_swiglu_silu' (Op: fused_silu_mul)
-    // ==================================================================
-    {
-        float* g   = (float*)(dram_base + 0);
-        float* u   = (float*)(dram_base + 0);
-        float* out = (float*)(dram_base + 8192);
-        npu_silu_mul_tile(out, g, u, 16, 128);
-    }
-
-    // ==================================================================
-    // Step 14: Node 'transformer_layer_0_swiglu_up_mm' (Op: matmul)
+    // Step 13: Node 'transformer_layer_0_swiglu_up_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 102400);
         float* dev_W = (float*)(dram_base + 32768);
-        float* dev_Y = (float*)(dram_base + 0);
+        float* dev_Y = (float*)(dram_base + 8192);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
@@ -547,11 +537,21 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
+    // Step 14: Node 'fused_swiglu_transformer_layer_0_swiglu_silu' (Op: fused_silu_mul)
+    // ==================================================================
+    {
+        float* g   = (float*)(dram_base + 0);
+        float* u   = (float*)(dram_base + 8192);
+        float* out = (float*)(dram_base + 0);
+        npu_silu_mul_tile(out, g, u, 16, 128);
+    }
+
+    // ==================================================================
     // Step 15: Node 'transformer_layer_0_swiglu_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 8192);
+        float* dev_X = (float*)(dram_base + 0);
         float* dev_W = (float*)(dram_base + 65536);
         float* dev_Y = (float*)(dram_base + 0);
 

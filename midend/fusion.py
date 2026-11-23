@@ -11,7 +11,13 @@ from frontend import Graph, OpNode, Tensor
 
 class FusionPattern:
     """Base class for all graph rewrite and fusion patterns."""
-    def match_and_rewrite(self, node: OpNode, graph: Graph, consumer_count: Dict[str, int]) -> Optional[Tuple[OpNode, Set[OpNode]]]:
+    def match_and_rewrite(
+        self,
+        node: OpNode,
+        graph: Graph,
+        consumer_count: Dict[str, int],
+        skip_nodes: Optional[Set[OpNode]] = None
+    ) -> Optional[Tuple[OpNode, Set[OpNode]]]:
         """
         If matched, returns (fused_node, nodes_to_remove).
         Otherwise returns None.
@@ -20,7 +26,13 @@ class FusionPattern:
 
 class MatMulAddReLUPattern(FusionPattern):
     """Fuses MatMul(X, W) + BiasAdd(..., B) + ReLU(...) -> FusedMatMulAddReLU."""
-    def match_and_rewrite(self, node: OpNode, graph: Graph, consumer_count: Dict[str, int]) -> Optional[Tuple[OpNode, Set[OpNode]]]:
+    def match_and_rewrite(
+        self,
+        node: OpNode,
+        graph: Graph,
+        consumer_count: Dict[str, int],
+        skip_nodes: Optional[Set[OpNode]] = None
+    ) -> Optional[Tuple[OpNode, Set[OpNode]]]:
         if node.op_type != "matmul":
             return None
 
@@ -28,13 +40,22 @@ class MatMulAddReLUPattern(FusionPattern):
         if consumer_count.get(mm_out.name, 0) != 1:
             return None
 
-        add_node = next((n for n in graph.nodes if n.op_type == "add" and mm_out in n.inputs), None)
+        add_node = next(
+            (n for n in graph.nodes if n.op_type == "add" and mm_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
         if not add_node or consumer_count.get(add_node.outputs[0].name, 0) != 1:
             return None
 
-        add_out = add_node.outputs[0]
         bias = [t for t in add_node.inputs if t != mm_out][0]
-        relu_node = next((n for n in graph.nodes if n.op_type == "relu" and add_out in n.inputs), None)
+        if len(bias.shape) != 1:
+            return None
+
+        add_out = add_node.outputs[0]
+        relu_node = next(
+            (n for n in graph.nodes if n.op_type == "relu" and add_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
         if not relu_node:
             return None
 
@@ -48,7 +69,13 @@ class MatMulAddReLUPattern(FusionPattern):
 
 class SwiGLUPattern(FusionPattern):
     """Fuses SiLU(gate) * up -> FusedSiLUMul (SwiGLU Activation Gating)."""
-    def match_and_rewrite(self, node: OpNode, graph: Graph, consumer_count: Dict[str, int]) -> Optional[Tuple[OpNode, Set[OpNode]]]:
+    def match_and_rewrite(
+        self,
+        node: OpNode,
+        graph: Graph,
+        consumer_count: Dict[str, int],
+        skip_nodes: Optional[Set[OpNode]] = None
+    ) -> Optional[Tuple[OpNode, Set[OpNode]]]:
         if node.op_type != "silu":
             return None
 
@@ -56,7 +83,10 @@ class SwiGLUPattern(FusionPattern):
         if consumer_count.get(silu_out.name, 0) != 1:
             return None
 
-        mul_node = next((n for n in graph.nodes if n.op_type == "mul" and silu_out in n.inputs), None)
+        mul_node = next(
+            (n for n in graph.nodes if n.op_type == "mul" and silu_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
         if not mul_node:
             return None
 
@@ -69,13 +99,92 @@ class SwiGLUPattern(FusionPattern):
         )
         return fused_node, {node, mul_node}
 
+class GeGLUPattern(FusionPattern):
+    """Fuses GeLU(gate) * up -> FusedGeLUMul (GeGLU Activation Gating)."""
+    def match_and_rewrite(
+        self,
+        node: OpNode,
+        graph: Graph,
+        consumer_count: Dict[str, int],
+        skip_nodes: Optional[Set[OpNode]] = None
+    ) -> Optional[Tuple[OpNode, Set[OpNode]]]:
+        if node.op_type != "gelu":
+            return None
+
+        gelu_out = node.outputs[0]
+        if consumer_count.get(gelu_out.name, 0) != 1:
+            return None
+
+        mul_node = next(
+            (n for n in graph.nodes if n.op_type == "mul" and gelu_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
+        if not mul_node:
+            return None
+
+        other_input = [t for t in mul_node.inputs if t != gelu_out][0]
+        fused_node = OpNode(
+            op_type="fused_gelu_mul",
+            inputs=[node.inputs[0], other_input],
+            outputs=[mul_node.outputs[0]],
+            name=f"fused_geglu_{node.name}"
+        )
+        return fused_node, {node, mul_node}
+
+class MatMulAddPattern(FusionPattern):
+    """Fuses MatMul(X, W) + BiasAdd(..., B) -> FusedMatMulAdd (when not followed by ReLU)."""
+    def match_and_rewrite(
+        self,
+        node: OpNode,
+        graph: Graph,
+        consumer_count: Dict[str, int],
+        skip_nodes: Optional[Set[OpNode]] = None
+    ) -> Optional[Tuple[OpNode, Set[OpNode]]]:
+        if node.op_type != "matmul":
+            return None
+
+        mm_out = node.outputs[0]
+        if consumer_count.get(mm_out.name, 0) != 1:
+            return None
+
+        add_node = next(
+            (n for n in graph.nodes if n.op_type == "add" and mm_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
+        if not add_node or consumer_count.get(add_node.outputs[0].name, 0) != 1:
+            return None
+
+        # Bias must be 1-D vector
+        bias = [t for t in add_node.inputs if t != mm_out][0]
+        if len(bias.shape) != 1:
+            return None
+
+        # Check if add_node is consumed by relu: if so, MatMulAddReLUPattern should handle it!
+        add_out = add_node.outputs[0]
+        relu_node = next(
+            (n for n in graph.nodes if n.op_type == "relu" and add_out in n.inputs and (skip_nodes is None or n not in skip_nodes)),
+            None
+        )
+        if relu_node:
+            return None
+
+        fused_node = OpNode(
+            op_type="fused_matmul_add",
+            inputs=[node.inputs[0], node.inputs[1], bias],
+            outputs=[add_node.outputs[0]],
+            name=f"fused_{node.name}_{add_node.name}"
+        )
+        return fused_node, {node, add_node}
+
 
 class OperatorFusionPass:
     def __init__(self, patterns: Optional[List[FusionPattern]] = None):
         # Open registry of fusion patterns: effortlessly extensible
         self.patterns = patterns or [
             MatMulAddReLUPattern(),
+            MatMulAddPattern(),
             SwiGLUPattern(),
+            GeGLUPattern(),
         ]
 
     def register_pattern(self, pattern: FusionPattern):
@@ -100,7 +209,7 @@ class OperatorFusionPass:
 
             matched = False
             for pattern in self.patterns:
-                result = pattern.match_and_rewrite(node, graph, consumer_count)
+                result = pattern.match_and_rewrite(node, graph, consumer_count, skip_nodes=skip_nodes)
                 if result is not None:
                     fused_node, consumed_nodes = result
                     skip_nodes.update(consumed_nodes)
@@ -112,4 +221,5 @@ class OperatorFusionPass:
                 new_nodes.append(node)
 
         fused_graph.nodes = new_nodes
+        fused_graph.topological_sort()
         return fused_graph

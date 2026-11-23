@@ -43,8 +43,8 @@ run_model:                              # @run_model
 .LBB0_2:
 	addiw	s3, s0, 4
 	add	s4, a3, a0
-	sd	a3, 56(sp)                      # 8-byte Folded Spill
-	sd	a4, 32(sp)                      # 8-byte Folded Spill
+	sd	a3, 40(sp)                      # 8-byte Folded Spill
+	sd	a4, 24(sp)                      # 8-byte Folded Spill
 	sd	s4, 64(sp)                      # 8-byte Folded Spill
 	sd	a1, 8(sp)                       # 8-byte Folded Spill
 	sd	s1, 16(sp)                      # 8-byte Folded Spill
@@ -59,17 +59,17 @@ run_model:                              # @run_model
 	lui	a0, 27
 	add	a0, a0, a3
 	sd	a0, 112(sp)                     # 8-byte Folded Spill
-.LBB0_79:                               # Label of block must be emitted
-	auipc	s10, %pcrel_hi(run_model.sram_c)
-	addi	s10, s10, %pcrel_lo(.LBB0_79)
-	lui	s5, 1
 .LBB0_80:                               # Label of block must be emitted
-	auipc	s11, %pcrel_hi(run_model.sram_a)
-	addi	s11, s11, %pcrel_lo(.LBB0_80)
-	li	s8, 1024
+	auipc	s10, %pcrel_hi(run_model.sram_c)
+	addi	s10, s10, %pcrel_lo(.LBB0_80)
+	lui	s5, 1
 .LBB0_81:                               # Label of block must be emitted
+	auipc	s11, %pcrel_hi(run_model.sram_a)
+	addi	s11, s11, %pcrel_lo(.LBB0_81)
+	li	s8, 1024
+.LBB0_82:                               # Label of block must be emitted
 	auipc	s6, %pcrel_hi(run_model.sram_b)
-	addi	s6, s6, %pcrel_lo(.LBB0_81)
+	addi	s6, s6, %pcrel_lo(.LBB0_82)
 	addi	s9, s11, 1024
 	add	s2, s6, s5
 	mv	s0, a4
@@ -166,9 +166,9 @@ run_model:                              # @run_model
 	blt	s0, s3, .LBB0_4
 # %bb.5:
 	lui	a0, 25
-	ld	a3, 56(sp)                      # 8-byte Folded Reload
+	ld	a3, 40(sp)                      # 8-byte Folded Reload
 	add	s11, a3, a0
-	ld	s0, 32(sp)                      # 8-byte Folded Reload
+	ld	s0, 24(sp)                      # 8-byte Folded Reload
 	bge	s0, s3, .LBB0_13
 # %bb.6:
 	lui	a0, 28
@@ -183,19 +183,19 @@ run_model:                              # @run_model
 	lui	a0, 31
 	add	a0, a0, a3
 	sd	a0, 104(sp)                     # 8-byte Folded Spill
-.LBB0_82:                               # Label of block must be emitted
+.LBB0_83:                               # Label of block must be emitted
 	auipc	s1, %pcrel_hi(run_model.sram_c.3)
-	addi	s1, s1, %pcrel_lo(.LBB0_82)
+	addi	s1, s1, %pcrel_lo(.LBB0_83)
 	lui	s8, 1
 	mv	s4, s3
-.LBB0_83:                               # Label of block must be emitted
+.LBB0_84:                               # Label of block must be emitted
 	auipc	s9, %pcrel_hi(run_model.sram_a.1)
-	addi	s9, s9, %pcrel_lo(.LBB0_83)
+	addi	s9, s9, %pcrel_lo(.LBB0_84)
 	mv	s5, s11
 	li	s11, 1024
-.LBB0_84:                               # Label of block must be emitted
+.LBB0_85:                               # Label of block must be emitted
 	auipc	s2, %pcrel_hi(run_model.sram_b.2)
-	addi	s2, s2, %pcrel_lo(.LBB0_84)
+	addi	s2, s2, %pcrel_lo(.LBB0_85)
 	addi	s7, s9, 1024
 	add	s6, s2, s8
 .LBB0_7:                                # =>This Inner Loop Header: Depth=1
@@ -290,14 +290,14 @@ run_model:                              # @run_model
 	addi	s0, s0, 16
 	blt	s0, s4, .LBB0_7
 # %bb.8:
-	sd	s5, 40(sp)                      # 8-byte Folded Spill
+	sd	s5, 48(sp)                      # 8-byte Folded Spill
 	lui	a0, 26
-	ld	a1, 56(sp)                      # 8-byte Folded Reload
+	ld	a1, 40(sp)                      # 8-byte Folded Reload
 	add	a0, a0, a1
-	sd	a0, 24(sp)                      # 8-byte Folded Spill
-	ld	s0, 32(sp)                      # 8-byte Folded Reload
+	sd	a0, 32(sp)                      # 8-byte Folded Spill
+	ld	s0, 24(sp)                      # 8-byte Folded Reload
 	mv	s3, s4
-	bge	s0, s4, .LBB0_78
+	bge	s0, s4, .LBB0_79
 # %bb.9:
 	lui	a0, 32
 	add	a0, a0, a1
@@ -311,21 +311,21 @@ run_model:                              # @run_model
 	lui	a0, 35
 	add	a0, a0, a1
 	sd	a0, 104(sp)                     # 8-byte Folded Spill
-.LBB0_85:                               # Label of block must be emitted
+.LBB0_86:                               # Label of block must be emitted
 	auipc	s1, %pcrel_hi(run_model.sram_c.6)
-	addi	s1, s1, %pcrel_lo(.LBB0_85)
+	addi	s1, s1, %pcrel_lo(.LBB0_86)
 	lui	s8, 1
 	mv	s4, s3
-.LBB0_86:                               # Label of block must be emitted
-	auipc	s9, %pcrel_hi(run_model.sram_a.4)
-	addi	s9, s9, %pcrel_lo(.LBB0_86)
-	li	s11, 1024
 .LBB0_87:                               # Label of block must be emitted
+	auipc	s9, %pcrel_hi(run_model.sram_a.4)
+	addi	s9, s9, %pcrel_lo(.LBB0_87)
+	li	s11, 1024
+.LBB0_88:                               # Label of block must be emitted
 	auipc	s7, %pcrel_hi(run_model.sram_b.5)
-	addi	s7, s7, %pcrel_lo(.LBB0_87)
+	addi	s7, s7, %pcrel_lo(.LBB0_88)
 	addi	s6, s9, 1024
 	add	s2, s7, s8
-	ld	s5, 24(sp)                      # 8-byte Folded Reload
+	ld	s5, 32(sp)                      # 8-byte Folded Reload
 .LBB0_10:                               # =>This Inner Loop Header: Depth=1
 	slliw	a0, s0, 6
 	slli	s10, a0, 2
@@ -419,14 +419,14 @@ run_model:                              # @run_model
 	blt	s0, s4, .LBB0_10
 # %bb.11:
 	mv	s3, s4
-	ld	s11, 40(sp)                     # 8-byte Folded Reload
+	ld	s11, 48(sp)                     # 8-byte Folded Reload
 	j	.LBB0_14
 .LBB0_12:
 	add	s11, a3, a0
 .LBB0_13:
 	lui	a0, 26
 	add	a0, a0, a3
-	sd	a0, 24(sp)                      # 8-byte Folded Spill
+	sd	a0, 32(sp)                      # 8-byte Folded Spill
 .LBB0_14:
 	li	a0, 0
 	li	a1, 256
@@ -451,29 +451,29 @@ run_model:                              # @run_model
 	addi	a3, a3, 256
 	bne	a0, a2, .LBB0_15
 # %bb.18:
-	ld	a0, 32(sp)                      # 8-byte Folded Reload
+	ld	a0, 24(sp)                      # 8-byte Folded Reload
 	mv	s10, s3
 	ld	s2, 64(sp)                      # 8-byte Folded Reload
 	bge	a0, s3, .LBB0_21
 # %bb.19:
 	lui	a0, 26
 	addiw	a0, a0, -2048
-	ld	a1, 56(sp)                      # 8-byte Folded Reload
+	ld	a1, 40(sp)                      # 8-byte Folded Reload
 	add	s3, a1, a0
-.LBB0_88:                               # Label of block must be emitted
-	auipc	s8, %pcrel_hi(run_model.sram_c.9)
-	addi	s8, s8, %pcrel_lo(.LBB0_88)
 .LBB0_89:                               # Label of block must be emitted
+	auipc	s8, %pcrel_hi(run_model.sram_c.9)
+	addi	s8, s8, %pcrel_lo(.LBB0_89)
+.LBB0_90:                               # Label of block must be emitted
 	auipc	s4, %pcrel_hi(run_model.sram_a.7)
-	addi	s4, s4, %pcrel_lo(.LBB0_89)
+	addi	s4, s4, %pcrel_lo(.LBB0_90)
 	lui	a0, 1
 	addiw	s9, a0, -2048
-.LBB0_90:                               # Label of block must be emitted
+.LBB0_91:                               # Label of block must be emitted
 	auipc	s5, %pcrel_hi(run_model.sram_b.8)
-	addi	s5, s5, %pcrel_lo(.LBB0_90)
+	addi	s5, s5, %pcrel_lo(.LBB0_91)
 	add	s6, s4, s9
 	add	s7, s5, s9
-	ld	s1, 32(sp)                      # 8-byte Folded Reload
+	ld	s1, 24(sp)                      # 8-byte Folded Reload
 .LBB0_20:                               # =>This Inner Loop Header: Depth=1
 	slliw	a0, s1, 6
 	slli	a0, a0, 2
@@ -530,8 +530,8 @@ run_model:                              # @run_model
 	addi	s1, s1, 16
 	blt	s1, s10, .LBB0_20
 .LBB0_21:
-	sd	s11, 40(sp)                     # 8-byte Folded Spill
-	sd	s10, 48(sp)                     # 8-byte Folded Spill
+	sd	s11, 48(sp)                     # 8-byte Folded Spill
+	sd	s10, 56(sp)                     # 8-byte Folded Spill
 	li	a0, 0
 	fmv.w.x	fs0, zero
 	li	s0, 64
@@ -733,24 +733,24 @@ run_model:                              # @run_model
 	li	a1, 16
 	bne	a0, a1, .LBB0_22
 # %bb.55:
-	ld	a0, 32(sp)                      # 8-byte Folded Reload
-	ld	s8, 48(sp)                      # 8-byte Folded Reload
+	ld	a0, 24(sp)                      # 8-byte Folded Reload
+	ld	s8, 56(sp)                      # 8-byte Folded Reload
 	ld	a5, 64(sp)                      # 8-byte Folded Reload
-	ld	s10, 24(sp)                     # 8-byte Folded Reload
+	ld	s10, 32(sp)                     # 8-byte Folded Reload
 	bge	a0, s8, .LBB0_61
 # %bb.56:
-.LBB0_91:                               # Label of block must be emitted
-	auipc	s6, %pcrel_hi(run_model.sram_c.12)
-	addi	s6, s6, %pcrel_lo(.LBB0_91)
-	lui	s2, 1
 .LBB0_92:                               # Label of block must be emitted
-	auipc	s4, %pcrel_hi(run_model.sram_a.10)
-	addi	s4, s4, %pcrel_lo(.LBB0_92)
-	li	s3, 1024
+	auipc	s6, %pcrel_hi(run_model.sram_c.12)
+	addi	s6, s6, %pcrel_lo(.LBB0_92)
+	lui	s2, 1
 .LBB0_93:                               # Label of block must be emitted
+	auipc	s4, %pcrel_hi(run_model.sram_a.10)
+	addi	s4, s4, %pcrel_lo(.LBB0_93)
+	li	s3, 1024
+.LBB0_94:                               # Label of block must be emitted
 	auipc	s5, %pcrel_hi(run_model.sram_b.11)
-	addi	s5, s5, %pcrel_lo(.LBB0_93)
-	ld	s0, 32(sp)                      # 8-byte Folded Reload
+	addi	s5, s5, %pcrel_lo(.LBB0_94)
+	ld	s0, 24(sp)                      # 8-byte Folded Reload
 	mv	s9, a5
 .LBB0_57:                               # =>This Inner Loop Header: Depth=1
 	slliw	a0, s0, 4
@@ -790,13 +790,13 @@ run_model:                              # @run_model
 	addi	s0, s0, 16
 	blt	s0, s8, .LBB0_57
 # %bb.58:
-	ld	a0, 32(sp)                      # 8-byte Folded Reload
+	ld	a0, 24(sp)                      # 8-byte Folded Reload
 	mv	a5, s9
 	bge	a0, s8, .LBB0_61
 # %bb.59:
 	mv	s4, s8
 	lui	a0, 36
-	ld	a1, 56(sp)                      # 8-byte Folded Reload
+	ld	a1, 40(sp)                      # 8-byte Folded Reload
 	add	a0, a0, a1
 	sd	a0, 136(sp)                     # 8-byte Folded Spill
 	lui	a0, 37
@@ -807,20 +807,20 @@ run_model:                              # @run_model
 	sd	a0, 120(sp)                     # 8-byte Folded Spill
 	lui	a0, 39
 	add	s5, a1, a0
-.LBB0_94:                               # Label of block must be emitted
-	auipc	s10, %pcrel_hi(run_model.sram_c.15)
-	addi	s10, s10, %pcrel_lo(.LBB0_94)
-	lui	s8, 1
 .LBB0_95:                               # Label of block must be emitted
-	auipc	s11, %pcrel_hi(run_model.sram_a.13)
-	addi	s11, s11, %pcrel_lo(.LBB0_95)
-	li	s9, 1024
+	auipc	s10, %pcrel_hi(run_model.sram_c.15)
+	addi	s10, s10, %pcrel_lo(.LBB0_95)
+	lui	s8, 1
 .LBB0_96:                               # Label of block must be emitted
+	auipc	s11, %pcrel_hi(run_model.sram_a.13)
+	addi	s11, s11, %pcrel_lo(.LBB0_96)
+	li	s9, 1024
+.LBB0_97:                               # Label of block must be emitted
 	auipc	s7, %pcrel_hi(run_model.sram_b.14)
-	addi	s7, s7, %pcrel_lo(.LBB0_96)
+	addi	s7, s7, %pcrel_lo(.LBB0_97)
 	addi	s6, s11, 1024
 	add	s2, s7, s8
-	ld	s0, 32(sp)                      # 8-byte Folded Reload
+	ld	s0, 24(sp)                      # 8-byte Folded Reload
 .LBB0_60:                               # =>This Inner Loop Header: Depth=1
 	slliw	a0, s0, 6
 	slli	a0, a0, 2
@@ -926,15 +926,15 @@ run_model:                              # @run_model
 	bnez	a0, .LBB0_62
 # %bb.63:
 	lui	a0, 42
-	ld	a4, 56(sp)                      # 8-byte Folded Reload
+	ld	a4, 40(sp)                      # 8-byte Folded Reload
 	add	a0, a0, a4
-	ld	a3, 40(sp)                      # 8-byte Folded Reload
+	ld	a3, 48(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 4, a3, a5, a0
 
 	#NO_APP
-	ld	s8, 32(sp)                      # 8-byte Folded Reload
-	ld	a0, 48(sp)                      # 8-byte Folded Reload
+	ld	s8, 24(sp)                      # 8-byte Folded Reload
+	ld	a0, 56(sp)                      # 8-byte Folded Reload
 	bge	s8, a0, .LBB0_74
 # %bb.64:
 	lui	a0, 2
@@ -957,27 +957,27 @@ run_model:                              # @run_model
 	addiw	a0, a2, 256
 	add	a0, a0, a4
 	sd	a0, 72(sp)                      # 8-byte Folded Spill
-.LBB0_97:                               # Label of block must be emitted
-	auipc	s1, %pcrel_hi(run_model.sram_c.18)
-	addi	s1, s1, %pcrel_lo(.LBB0_97)
-	lui	s10, 1
 .LBB0_98:                               # Label of block must be emitted
-	auipc	s5, %pcrel_hi(run_model.sram_a.16)
-	addi	s5, s5, %pcrel_lo(.LBB0_98)
+	auipc	s1, %pcrel_hi(run_model.sram_c.18)
+	addi	s1, s1, %pcrel_lo(.LBB0_98)
+	lui	s11, 1
 .LBB0_99:                               # Label of block must be emitted
+	auipc	s10, %pcrel_hi(run_model.sram_a.16)
+	addi	s10, s10, %pcrel_lo(.LBB0_99)
+.LBB0_100:                              # Label of block must be emitted
 	auipc	s2, %pcrel_hi(run_model.sram_b.17)
-	addi	s2, s2, %pcrel_lo(.LBB0_99)
-	addi	s6, s5, 1024
-	add	s7, s2, s10
+	addi	s2, s2, %pcrel_lo(.LBB0_100)
+	addi	s6, s10, 1024
+	add	s7, s2, s11
 .LBB0_65:                               # =>This Inner Loop Header: Depth=1
 	slliw	a0, s8, 6
 	slli	a0, a0, 2
-	ld	a1, 40(sp)                      # 8-byte Folded Reload
+	ld	a1, 48(sp)                      # 8-byte Folded Reload
 	add	s0, a1, a0
 	addi	s4, s0, 192
 	sd	s4, 128(sp)                     # 8-byte Folded Spill
-	addi	s11, s0, 128
-	addi	s3, s0, 64
+	addi	s3, s0, 128
+	addi	s5, s0, 64
 	slliw	a0, s8, 7
 	sd	a0, 136(sp)                     # 8-byte Folded Spill
 	lui	a2, 1
@@ -986,10 +986,10 @@ run_model:                              # @run_model
 	call	memset@plt
 	li	s9, 1024
 	#APP
-	.insn r 11, 0, 1, zero, s5, s0
+	.insn r 11, 0, 1, zero, s10, s0
 
 	#NO_APP
-	ld	a1, 56(sp)                      # 8-byte Folded Reload
+	ld	a1, 40(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s2, a1
 
@@ -999,7 +999,7 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 1, zero, s6, s3
+	.insn r 11, 0, 1, zero, s6, s5
 
 	#NO_APP
 	ld	a0, 120(sp)                     # 8-byte Folded Reload
@@ -1008,7 +1008,7 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 2, s1, s5, s2
+	.insn r 11, 0, 2, s1, s10, s2
 
 	#NO_APP
 	#APP
@@ -1016,7 +1016,7 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 1, zero, s5, s11
+	.insn r 11, 0, 1, zero, s10, s3
 
 	#NO_APP
 	ld	a0, 112(sp)                     # 8-byte Folded Reload
@@ -1042,7 +1042,7 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 2, s1, s5, s2
+	.insn r 11, 0, 2, s1, s10, s2
 
 	#NO_APP
 	#APP
@@ -1069,7 +1069,7 @@ run_model:                              # @run_model
 	li	a1, 0
 	call	memset@plt
 	#APP
-	.insn r 11, 0, 1, zero, s5, s0
+	.insn r 11, 0, 1, zero, s10, s0
 
 	#NO_APP
 	ld	a0, 96(sp)                      # 8-byte Folded Reload
@@ -1082,7 +1082,7 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 1, zero, s6, s3
+	.insn r 11, 0, 1, zero, s6, s5
 
 	#NO_APP
 	ld	a0, 88(sp)                      # 8-byte Folded Reload
@@ -1091,7 +1091,7 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 2, s1, s5, s2
+	.insn r 11, 0, 2, s1, s10, s2
 
 	#NO_APP
 	#APP
@@ -1099,7 +1099,7 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 1, zero, s5, s11
+	.insn r 11, 0, 1, zero, s10, s3
 
 	#NO_APP
 	ld	a0, 80(sp)                      # 8-byte Folded Reload
@@ -1120,14 +1120,14 @@ run_model:                              # @run_model
 	.insn r 11, 0, 1, zero, s6, a0
 
 	#NO_APP
-	ld	a1, 48(sp)                      # 8-byte Folded Reload
+	ld	a5, 56(sp)                      # 8-byte Folded Reload
 	ld	a0, 72(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s7, a0
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 2, s1, s5, s2
+	.insn r 11, 0, 2, s1, s10, s2
 
 	#NO_APP
 	#APP
@@ -1148,76 +1148,72 @@ run_model:                              # @run_model
 
 	#NO_APP
 	addi	s8, s8, 16
-	blt	s8, a1, .LBB0_65
+	blt	s8, a5, .LBB0_65
 # %bb.66:
 	lui	a0, 2
-	ld	a4, 56(sp)                      # 8-byte Folded Reload
+	ld	a4, 40(sp)                      # 8-byte Folded Reload
 	add	a0, a0, a4
-	sd	a0, 24(sp)                      # 8-byte Folded Spill
-	#APP
-	.insn r 11, 0, 5, a0, a4, a4
-
-	#NO_APP
-	ld	s11, 32(sp)                     # 8-byte Folded Reload
-	bge	s11, a1, .LBB0_75
+	sd	a0, 120(sp)                     # 8-byte Folded Spill
+	ld	s11, 24(sp)                     # 8-byte Folded Reload
+	bge	s11, a5, .LBB0_75
 # %bb.67:
 	lui	a0, 8
 	add	a1, a4, a0
-	sd	a1, 120(sp)                     # 8-byte Folded Spill
+	sd	a1, 112(sp)                     # 8-byte Folded Spill
 	lui	a1, 10
 	add	a2, a4, a1
-	sd	a2, 112(sp)                     # 8-byte Folded Spill
+	sd	a2, 104(sp)                     # 8-byte Folded Spill
 	lui	a2, 12
 	add	a3, a4, a2
-	sd	a3, 104(sp)                     # 8-byte Folded Spill
+	sd	a3, 96(sp)                      # 8-byte Folded Spill
 	lui	a3, 14
-	add	a5, a4, a3
-	sd	a5, 96(sp)                      # 8-byte Folded Spill
+	add	s1, a4, a3
+	sd	s1, 88(sp)                      # 8-byte Folded Spill
 	addiw	a0, a0, 256
 	add	a0, a0, a4
-	sd	a0, 88(sp)                      # 8-byte Folded Spill
+	sd	a0, 80(sp)                      # 8-byte Folded Spill
 	addiw	a0, a1, 256
 	add	a0, a0, a4
-	sd	a0, 80(sp)                      # 8-byte Folded Spill
+	sd	a0, 72(sp)                      # 8-byte Folded Spill
 	addiw	a0, a2, 256
 	add	a0, a0, a4
-	sd	a0, 72(sp)                      # 8-byte Folded Spill
+	sd	a0, 64(sp)                      # 8-byte Folded Spill
 	addiw	a0, a3, 256
 	add	a0, a0, a4
-	sd	a0, 64(sp)                      # 8-byte Folded Spill
-.LBB0_100:                              # Label of block must be emitted
-	auipc	s1, %pcrel_hi(run_model.sram_c.21)
-	addi	s1, s1, %pcrel_lo(.LBB0_100)
-	lui	s4, 1
+	sd	a0, 32(sp)                      # 8-byte Folded Spill
 .LBB0_101:                              # Label of block must be emitted
-	auipc	s10, %pcrel_hi(run_model.sram_a.19)
-	addi	s10, s10, %pcrel_lo(.LBB0_101)
+	auipc	s1, %pcrel_hi(run_model.sram_c.21)
+	addi	s1, s1, %pcrel_lo(.LBB0_101)
+	lui	s2, 1
 .LBB0_102:                              # Label of block must be emitted
+	auipc	s10, %pcrel_hi(run_model.sram_a.19)
+	addi	s10, s10, %pcrel_lo(.LBB0_102)
+.LBB0_103:                              # Label of block must be emitted
 	auipc	s7, %pcrel_hi(run_model.sram_b.20)
-	addi	s7, s7, %pcrel_lo(.LBB0_102)
+	addi	s7, s7, %pcrel_lo(.LBB0_103)
 	addi	s8, s10, 1024
-	add	s9, s7, s4
+	add	s9, s7, s2
 .LBB0_68:                               # =>This Inner Loop Header: Depth=1
 	slliw	a0, s11, 6
 	slli	a0, a0, 2
-	ld	a1, 40(sp)                      # 8-byte Folded Reload
+	ld	a1, 48(sp)                      # 8-byte Folded Reload
 	add	s0, a1, a0
-	addi	s6, s0, 192
+	addi	s4, s0, 192
+	addi	s6, s0, 128
 	sd	s6, 128(sp)                     # 8-byte Folded Spill
-	addi	s2, s0, 128
-	addi	s3, s0, 64
+	addi	s5, s0, 64
 	slliw	a0, s11, 7
 	sd	a0, 136(sp)                     # 8-byte Folded Spill
 	lui	a2, 1
 	mv	a0, s1
 	li	a1, 0
 	call	memset@plt
-	li	s5, 1024
+	li	s3, 1024
 	#APP
 	.insn r 11, 0, 1, zero, s10, s0
 
 	#NO_APP
-	ld	a0, 120(sp)                     # 8-byte Folded Reload
+	ld	a0, 112(sp)                     # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s7, a0
 
@@ -1227,10 +1223,10 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 1, zero, s8, s3
+	.insn r 11, 0, 1, zero, s8, s5
 
 	#NO_APP
-	ld	a0, 112(sp)                     # 8-byte Folded Reload
+	ld	a0, 104(sp)                     # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s9, a0
 
@@ -1244,10 +1240,10 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 1, zero, s10, s2
+	.insn r 11, 0, 1, zero, s10, s6
 
 	#NO_APP
-	ld	a0, 104(sp)                     # 8-byte Folded Reload
+	ld	a0, 96(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s7, a0
 
@@ -1261,10 +1257,10 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 1, zero, s8, s6
+	.insn r 11, 0, 1, zero, s8, s4
 
 	#NO_APP
-	ld	a0, 96(sp)                      # 8-byte Folded Reload
+	ld	a0, 88(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s9, a0
 
@@ -1283,7 +1279,7 @@ run_model:                              # @run_model
 	#NO_APP
 	ld	a0, 136(sp)                     # 8-byte Folded Reload
 	slli	a0, a0, 2
-	ld	a1, 56(sp)                      # 8-byte Folded Reload
+	ld	a1, 120(sp)                     # 8-byte Folded Reload
 	add	s6, a1, a0
 	#APP
 	.insn r 11, 0, 1, zero, s6, s1
@@ -1301,7 +1297,7 @@ run_model:                              # @run_model
 	.insn r 11, 0, 1, zero, s10, s0
 
 	#NO_APP
-	ld	a0, 88(sp)                      # 8-byte Folded Reload
+	ld	a0, 80(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s7, a0
 
@@ -1311,10 +1307,10 @@ run_model:                              # @run_model
 
 	#NO_APP
 	#APP
-	.insn r 11, 0, 1, zero, s8, s3
+	.insn r 11, 0, 1, zero, s8, s5
 
 	#NO_APP
-	ld	a0, 80(sp)                      # 8-byte Folded Reload
+	ld	a0, 72(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s9, a0
 
@@ -1327,11 +1323,12 @@ run_model:                              # @run_model
 	.insn i 11, 1, zero, zero, 0
 
 	#NO_APP
+	ld	a0, 128(sp)                     # 8-byte Folded Reload
 	#APP
-	.insn r 11, 0, 1, zero, s10, s2
+	.insn r 11, 0, 1, zero, s10, a0
 
 	#NO_APP
-	ld	a0, 72(sp)                      # 8-byte Folded Reload
+	ld	a0, 64(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s7, a0
 
@@ -1344,12 +1341,11 @@ run_model:                              # @run_model
 	.insn i 11, 1, zero, zero, 0
 
 	#NO_APP
-	ld	a0, 128(sp)                     # 8-byte Folded Reload
 	#APP
-	.insn r 11, 0, 1, zero, s8, a0
+	.insn r 11, 0, 1, zero, s8, s4
 
 	#NO_APP
-	ld	a0, 64(sp)                      # 8-byte Folded Reload
+	ld	a0, 32(sp)                      # 8-byte Folded Reload
 	#APP
 	.insn r 11, 0, 1, zero, s9, a0
 
@@ -1376,13 +1372,18 @@ run_model:                              # @run_model
 
 	#NO_APP
 	addi	s11, s11, 16
-	ld	a0, 48(sp)                      # 8-byte Folded Reload
+	ld	a0, 56(sp)                      # 8-byte Folded Reload
 	blt	s11, a0, .LBB0_68
 # %bb.69:
-	ld	a4, 56(sp)                      # 8-byte Folded Reload
-	ld	a1, 32(sp)                      # 8-byte Folded Reload
-	ld	a0, 48(sp)                      # 8-byte Folded Reload
-	bge	a1, a0, .LBB0_75
+	ld	a4, 40(sp)                      # 8-byte Folded Reload
+	ld	a0, 120(sp)                     # 8-byte Folded Reload
+	#APP
+	.insn r 11, 0, 5, a4, a4, a0
+
+	#NO_APP
+	ld	a1, 24(sp)                      # 8-byte Folded Reload
+	ld	a0, 56(sp)                      # 8-byte Folded Reload
+	bge	a1, a0, .LBB0_76
 # %bb.70:
 	lui	a0, 16
 	add	a0, a0, a4
@@ -1390,23 +1391,21 @@ run_model:                              # @run_model
 	lui	a0, 17
 	add	a0, a0, a4
 	sd	a0, 128(sp)                     # 8-byte Folded Spill
-	lui	a0, 2
-	addiw	a0, a0, 64
-	add	a0, a0, a4
+	addi	a0, a4, 64
 	sd	a0, 120(sp)                     # 8-byte Folded Spill
 	ld	a0, 8(sp)                       # 8-byte Folded Reload
 	slliw	s5, a0, 9
-.LBB0_103:                              # Label of block must be emitted
-	auipc	s8, %pcrel_hi(run_model.sram_c.24)
-	addi	s8, s8, %pcrel_lo(.LBB0_103)
-	lui	s6, 1
 .LBB0_104:                              # Label of block must be emitted
-	auipc	s3, %pcrel_hi(run_model.sram_a.22)
-	addi	s3, s3, %pcrel_lo(.LBB0_104)
-	li	s7, 1024
+	auipc	s8, %pcrel_hi(run_model.sram_c.24)
+	addi	s8, s8, %pcrel_lo(.LBB0_104)
+	lui	s6, 1
 .LBB0_105:                              # Label of block must be emitted
+	auipc	s3, %pcrel_hi(run_model.sram_a.22)
+	addi	s3, s3, %pcrel_lo(.LBB0_105)
+	li	s7, 1024
+.LBB0_106:                              # Label of block must be emitted
 	auipc	s1, %pcrel_hi(run_model.sram_b.23)
-	addi	s1, s1, %pcrel_lo(.LBB0_105)
+	addi	s1, s1, %pcrel_lo(.LBB0_106)
 	li	s9, 1
 	li	s11, 96
 .LBB0_71:                               # =>This Loop Header: Depth=1
@@ -1417,8 +1416,7 @@ run_model:                              # @run_model
 	mv	s4, a1
 	slliw	a0, a1, 7
 	slli	a0, a0, 2
-	ld	a1, 24(sp)                      # 8-byte Folded Reload
-	add	s10, a1, a0
+	add	s10, a4, a0
 	lui	a2, 1
 	mv	a0, s8
 	li	a1, 0
@@ -1480,7 +1478,7 @@ run_model:                              # @run_model
 	mv	a1, s4
 	slliw	a0, s4, 6
 	slli	a0, a0, 2
-	ld	a4, 56(sp)                      # 8-byte Folded Reload
+	ld	a4, 40(sp)                      # 8-byte Folded Reload
 	add	a0, a0, a4
 	#APP
 	.insn r 11, 0, 1, zero, a0, s8
@@ -1493,20 +1491,23 @@ run_model:                              # @run_model
 	addi	a1, s4, 16
 	addiw	a0, s5, 2047
 	addiw	s5, a0, 1
-	ld	a0, 48(sp)                      # 8-byte Folded Reload
+	ld	a0, 56(sp)                      # 8-byte Folded Reload
 	blt	a1, a0, .LBB0_71
-	j	.LBB0_75
+	j	.LBB0_76
 .LBB0_74:
 	lui	a0, 2
 	add	a0, a0, a4
+	sd	a0, 120(sp)                     # 8-byte Folded Spill
+.LBB0_75:
+	ld	a0, 120(sp)                     # 8-byte Folded Reload
 	#APP
-	.insn r 11, 0, 5, a0, a4, a4
+	.insn r 11, 0, 5, a4, a4, a0
 
 	#NO_APP
-.LBB0_75:
+.LBB0_76:
 	li	a0, 1024
 	lui	a1, 24
-.LBB0_76:                               # =>This Inner Loop Header: Depth=1
+.LBB0_77:                               # =>This Inner Loop Header: Depth=1
 	add	a2, a4, a1
 	flw	ft0, 0(a2)
 	flw	ft1, 0(a4)
@@ -1514,8 +1515,8 @@ run_model:                              # @run_model
 	fsw	ft0, 0(a4)
 	addi	a0, a0, -1
 	addi	a4, a4, 4
-	bnez	a0, .LBB0_76
-# %bb.77:
+	bnez	a0, .LBB0_77
+# %bb.78:
 	ld	ra, 264(sp)                     # 8-byte Folded Reload
 	ld	s0, 256(sp)                     # 8-byte Folded Reload
 	ld	s1, 248(sp)                     # 8-byte Folded Reload
@@ -1534,8 +1535,8 @@ run_model:                              # @run_model
 	fld	fs2, 144(sp)                    # 8-byte Folded Reload
 	addi	sp, sp, 272
 	ret
-.LBB0_78:
-	ld	s11, 40(sp)                     # 8-byte Folded Reload
+.LBB0_79:
+	ld	s11, 48(sp)                     # 8-byte Folded Reload
 	j	.LBB0_14
 .Lfunc_end0:
 	.size	run_model, .Lfunc_end0-run_model

@@ -113,18 +113,20 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 2: Node 'qwen_layer_0_attn_q_mm' (Op: matmul)
+    // Step 2: Node 'fused_qwen_layer_0_attn_q_mm_qwen_layer_0_attn_q_bias' (Op: fused_matmul_add)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 176128);
         float* dev_W = (float*)(dram_base + 98304);
+        float* dev_B = (float*)(dram_base + 180224);
         float* dev_Y = (float*)(dram_base + 98304);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
         static float sram_b[2][16 * 64];
         static float sram_c[16 * 64];
+        static float sram_bias[64];
 
         // IREE Flow: Multi-core loop partitioning over dimension M
         int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
@@ -134,6 +136,8 @@ void run_model(uint8_t* dram_base, int core_id) {
         for (int m = m_start; m < m_end; m += 16) {
             for (int n = 0; n < 64; n += 64) {
                 memset(sram_c, 0, sizeof(sram_c));
+                npu_dma_async(sram_bias, &dev_B[n], 64 * sizeof(float));
+                npu_dma_wait();
                 int p = 0; // Ping-pong index
                 // 1. Prefetch Stage 0 Tile
                 npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
@@ -160,28 +164,20 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 3: Node 'qwen_layer_0_attn_q_bias' (Op: add)
-    // ==================================================================
-    {
-        float* a   = (float*)(dram_base + 98304);
-        float* b   = (float*)(dram_base + 180224);
-        float* out = (float*)(dram_base + 98304);
-        for (int i = 0; i < 1024; ++i) out[i] = a[i] + b[i];
-    }
-
-    // ==================================================================
-    // Step 4: Node 'qwen_layer_0_attn_k_mm' (Op: matmul)
+    // Step 3: Node 'fused_qwen_layer_0_attn_k_mm_qwen_layer_0_attn_k_bias' (Op: fused_matmul_add)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 176128);
         float* dev_W = (float*)(dram_base + 114688);
+        float* dev_B = (float*)(dram_base + 180480);
         float* dev_Y = (float*)(dram_base + 102400);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
         static float sram_b[2][16 * 64];
         static float sram_c[16 * 64];
+        static float sram_bias[64];
 
         // IREE Flow: Multi-core loop partitioning over dimension M
         int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
@@ -191,6 +187,8 @@ void run_model(uint8_t* dram_base, int core_id) {
         for (int m = m_start; m < m_end; m += 16) {
             for (int n = 0; n < 64; n += 64) {
                 memset(sram_c, 0, sizeof(sram_c));
+                npu_dma_async(sram_bias, &dev_B[n], 64 * sizeof(float));
+                npu_dma_wait();
                 int p = 0; // Ping-pong index
                 // 1. Prefetch Stage 0 Tile
                 npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
@@ -217,28 +215,20 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 5: Node 'qwen_layer_0_attn_k_bias' (Op: add)
-    // ==================================================================
-    {
-        float* a   = (float*)(dram_base + 102400);
-        float* b   = (float*)(dram_base + 180480);
-        float* out = (float*)(dram_base + 102400);
-        for (int i = 0; i < 1024; ++i) out[i] = a[i] + b[i];
-    }
-
-    // ==================================================================
-    // Step 6: Node 'qwen_layer_0_attn_v_mm' (Op: matmul)
+    // Step 4: Node 'fused_qwen_layer_0_attn_v_mm_qwen_layer_0_attn_v_bias' (Op: fused_matmul_add)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 176128);
         float* dev_W = (float*)(dram_base + 131072);
+        float* dev_B = (float*)(dram_base + 180736);
         float* dev_Y = (float*)(dram_base + 106496);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
         static float sram_b[2][16 * 64];
         static float sram_c[16 * 64];
+        static float sram_bias[64];
 
         // IREE Flow: Multi-core loop partitioning over dimension M
         int chunk_m = (16 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
@@ -248,6 +238,8 @@ void run_model(uint8_t* dram_base, int core_id) {
         for (int m = m_start; m < m_end; m += 16) {
             for (int n = 0; n < 64; n += 64) {
                 memset(sram_c, 0, sizeof(sram_c));
+                npu_dma_async(sram_bias, &dev_B[n], 64 * sizeof(float));
+                npu_dma_wait();
                 int p = 0; // Ping-pong index
                 // 1. Prefetch Stage 0 Tile
                 npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 16 * 16 * sizeof(float));
@@ -274,17 +266,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 7: Node 'qwen_layer_0_attn_v_bias' (Op: add)
-    // ==================================================================
-    {
-        float* a   = (float*)(dram_base + 106496);
-        float* b   = (float*)(dram_base + 180736);
-        float* out = (float*)(dram_base + 106496);
-        for (int i = 0; i < 1024; ++i) out[i] = a[i] + b[i];
-    }
-
-    // ==================================================================
-    // Step 8: Node 'qwen_layer_0_attn_q_rope' (Op: rope)
+    // Step 5: Node 'qwen_layer_0_attn_q_rope' (Op: rope)
     // ==================================================================
     {
         float* in   = (float*)(dram_base + 98304);
@@ -295,7 +277,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 9: Node 'qwen_layer_0_attn_k_rope' (Op: rope)
+    // Step 6: Node 'qwen_layer_0_attn_k_rope' (Op: rope)
     // ==================================================================
     {
         float* in   = (float*)(dram_base + 102400);
@@ -306,7 +288,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 10: Node 'qwen_layer_0_attn_k_trans' (Op: transpose)
+    // Step 7: Node 'qwen_layer_0_attn_k_trans' (Op: transpose)
     // ==================================================================
     {
         float* in  = (float*)(dram_base + 102400);
@@ -319,7 +301,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 11: Node 'qwen_layer_0_attn_qk' (Op: matmul)
+    // Step 8: Node 'qwen_layer_0_attn_qk' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -366,7 +348,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 12: Node 'qwen_layer_0_attn_softmax' (Op: softmax)
+    // Step 9: Node 'qwen_layer_0_attn_softmax' (Op: softmax)
     // ==================================================================
     {
         float* in  = (float*)(dram_base + 98304);
@@ -381,7 +363,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 13: Node 'qwen_layer_0_attn_attn_v' (Op: matmul)
+    // Step 10: Node 'qwen_layer_0_attn_attn_v' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -428,7 +410,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 14: Node 'qwen_layer_0_attn_out_mm' (Op: matmul)
+    // Step 11: Node 'qwen_layer_0_attn_out_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -475,7 +457,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 15: Node 'qwen_layer_0_res1' (Op: add)
+    // Step 12: Node 'qwen_layer_0_res1' (Op: add)
     // ==================================================================
     {
         float* a   = (float*)(dram_base + 163840);
@@ -485,7 +467,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 16: Node 'qwen_layer_0_post_norm' (Op: rmsnorm)
+    // Step 13: Node 'qwen_layer_0_post_norm' (Op: rmsnorm)
     // ==================================================================
     {
         float* in  = (float*)(dram_base + 98304);
@@ -495,7 +477,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 17: Node 'qwen_layer_0_mlp_gate_mm' (Op: matmul)
+    // Step 14: Node 'qwen_layer_0_mlp_gate_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
@@ -542,23 +524,13 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 18: Node 'fused_swiglu_qwen_layer_0_mlp_silu' (Op: fused_silu_mul)
-    // ==================================================================
-    {
-        float* g   = (float*)(dram_base + 0);
-        float* u   = (float*)(dram_base + 0);
-        float* out = (float*)(dram_base + 8192);
-        npu_silu_mul_tile(out, g, u, 16, 128);
-    }
-
-    // ==================================================================
-    // Step 19: Node 'qwen_layer_0_mlp_up_mm' (Op: matmul)
+    // Step 15: Node 'qwen_layer_0_mlp_up_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 102400);
         float* dev_W = (float*)(dram_base + 32768);
-        float* dev_Y = (float*)(dram_base + 0);
+        float* dev_Y = (float*)(dram_base + 8192);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
@@ -599,11 +571,21 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 20: Node 'qwen_layer_0_mlp_down_mm' (Op: matmul)
+    // Step 16: Node 'fused_swiglu_qwen_layer_0_mlp_silu' (Op: fused_silu_mul)
+    // ==================================================================
+    {
+        float* g   = (float*)(dram_base + 0);
+        float* u   = (float*)(dram_base + 8192);
+        float* out = (float*)(dram_base + 0);
+        npu_silu_mul_tile(out, g, u, 16, 128);
+    }
+
+    // ==================================================================
+    // Step 17: Node 'qwen_layer_0_mlp_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 8192);
+        float* dev_X = (float*)(dram_base + 0);
         float* dev_W = (float*)(dram_base + 65536);
         float* dev_Y = (float*)(dram_base + 0);
 
@@ -646,7 +628,7 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 21: Node 'qwen_layer_0_res2' (Op: add)
+    // Step 18: Node 'qwen_layer_0_res2' (Op: add)
     // ==================================================================
     {
         float* a   = (float*)(dram_base + 98304);

@@ -104,6 +104,16 @@ def _ref_fused_silu_mul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     silu_g = _ref_silu([g], attrs)[0]
     return _ref_mul([silu_g, u], attrs)
 
+def _ref_fused_gelu_mul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
+    g, u = inputs[0], inputs[1]
+    gelu_g = _ref_gelu([g], attrs)[0]
+    return _ref_mul([gelu_g, u], attrs)
+
+def _ref_fused_matmul_add(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
+    x, w, b = inputs[0], inputs[1], inputs[2]
+    mm = _ref_matmul([x, w], attrs)[0]
+    return _ref_add([mm, b], attrs)
+
 
 # --- Register Standard Operators ---
 def register_standard_ops():
@@ -257,6 +267,32 @@ def register_standard_ops():
             f"        float* out = (float*)(dram_base + {node.outputs[0].allocated_offset});",
             f"        npu_silu_mul_tile(out, g, u, {node.inputs[0].shape[0]}, {node.inputs[0].shape[1]});"
         ]
+    ))
+
+    # Fused GeLU + Mul (GeGLU)
+    OpRegistry.register(OpDefinition(
+        name="fused_gelu_mul",
+        traits={OpTrait.FUSED_COMPOSITE, OpTrait.ELEMENTWISE},
+        infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
+        eval_ref_fn=_ref_fused_gelu_mul,
+        emit_c_fn=lambda node, ctx: [
+            f"        float* g   = (float*)(dram_base + {node.inputs[0].allocated_offset});",
+            f"        float* u   = (float*)(dram_base + {node.inputs[1].allocated_offset});",
+            f"        float* out = (float*)(dram_base + {node.outputs[0].allocated_offset});",
+            f"        for (int idx = 0; idx < {node.inputs[0].num_elements}; ++idx) {{",
+            f"            float val = g[idx];",
+            f"            float gelu_val = 0.5f * val * (1.0f + (float)erff(val / 1.41421356f));",
+            f"            out[idx] = gelu_val * u[idx];",
+            f"        }}"
+        ]
+    ))
+
+    # Fused MatMul + Add (Bias Add)
+    OpRegistry.register(OpDefinition(
+        name="fused_matmul_add",
+        traits={OpTrait.FUSED_COMPOSITE, OpTrait.MATMUL_LIKE},
+        infer_shape_fn=lambda in_shapes, attrs: [(in_shapes[0][0], in_shapes[1][1])],
+        eval_ref_fn=_ref_fused_matmul_add
     ))
 
 # Automatically initialize standard ops upon import

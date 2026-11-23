@@ -790,23 +790,13 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 24: Node 'fused_swiglu_deepseek_layer_0_moe_shared_exp_silu' (Op: fused_silu_mul)
-    // ==================================================================
-    {
-        float* g   = (float*)(dram_base + 0);
-        float* u   = (float*)(dram_base + 0);
-        float* out = (float*)(dram_base + 8192);
-        npu_silu_mul_tile(out, g, u, 16, 128);
-    }
-
-    // ==================================================================
-    // Step 25: Node 'deepseek_layer_0_moe_shared_exp_up_mm' (Op: matmul)
+    // Step 24: Node 'deepseek_layer_0_moe_shared_exp_up_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 299008);
         float* dev_W = (float*)(dram_base + 32768);
-        float* dev_Y = (float*)(dram_base + 0);
+        float* dev_Y = (float*)(dram_base + 8192);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
@@ -847,11 +837,21 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
+    // Step 25: Node 'fused_swiglu_deepseek_layer_0_moe_shared_exp_silu' (Op: fused_silu_mul)
+    // ==================================================================
+    {
+        float* g   = (float*)(dram_base + 0);
+        float* u   = (float*)(dram_base + 8192);
+        float* out = (float*)(dram_base + 0);
+        npu_silu_mul_tile(out, g, u, 16, 128);
+    }
+
+    // ==================================================================
     // Step 26: Node 'deepseek_layer_0_moe_shared_exp_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 8192);
+        float* dev_X = (float*)(dram_base + 0);
         float* dev_W = (float*)(dram_base + 65536);
         float* dev_Y = (float*)(dram_base + 16384);
 
@@ -941,23 +941,13 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 28: Node 'fused_swiglu_deepseek_layer_0_moe_expert_0_silu' (Op: fused_silu_mul)
-    // ==================================================================
-    {
-        float* g   = (float*)(dram_base + 0);
-        float* u   = (float*)(dram_base + 0);
-        float* out = (float*)(dram_base + 8192);
-        npu_silu_mul_tile(out, g, u, 16, 128);
-    }
-
-    // ==================================================================
-    // Step 29: Node 'deepseek_layer_0_moe_expert_0_up_mm' (Op: matmul)
+    // Step 28: Node 'deepseek_layer_0_moe_expert_0_up_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 299008);
         float* dev_W = (float*)(dram_base + 131072);
-        float* dev_Y = (float*)(dram_base + 0);
+        float* dev_Y = (float*)(dram_base + 8192);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
@@ -998,11 +988,21 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
+    // Step 29: Node 'fused_swiglu_deepseek_layer_0_moe_expert_0_silu' (Op: fused_silu_mul)
+    // ==================================================================
+    {
+        float* g   = (float*)(dram_base + 0);
+        float* u   = (float*)(dram_base + 8192);
+        float* out = (float*)(dram_base + 0);
+        npu_silu_mul_tile(out, g, u, 16, 128);
+    }
+
+    // ==================================================================
     // Step 30: Node 'deepseek_layer_0_moe_expert_0_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 8192);
+        float* dev_X = (float*)(dram_base + 0);
         float* dev_W = (float*)(dram_base + 163840);
         float* dev_Y = (float*)(dram_base + 20480);
 
@@ -1092,23 +1092,13 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
-    // Step 32: Node 'fused_swiglu_deepseek_layer_0_moe_expert_1_silu' (Op: fused_silu_mul)
-    // ==================================================================
-    {
-        float* g   = (float*)(dram_base + 0);
-        float* u   = (float*)(dram_base + 0);
-        float* out = (float*)(dram_base + 8192);
-        npu_silu_mul_tile(out, g, u, 16, 128);
-    }
-
-    // ==================================================================
-    // Step 33: Node 'deepseek_layer_0_moe_expert_1_up_mm' (Op: matmul)
+    // Step 32: Node 'deepseek_layer_0_moe_expert_1_up_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
         float* dev_X = (float*)(dram_base + 299008);
         float* dev_W = (float*)(dram_base + 229376);
-        float* dev_Y = (float*)(dram_base + 0);
+        float* dev_Y = (float*)(dram_base + 8192);
 
         // On-chip SRAM Double Buffering (TVM TensorIR 2-Stage Pipeline)
         static float sram_a[2][16 * 16];
@@ -1149,11 +1139,21 @@ void run_model(uint8_t* dram_base, int core_id) {
     }
 
     // ==================================================================
+    // Step 33: Node 'fused_swiglu_deepseek_layer_0_moe_expert_1_silu' (Op: fused_silu_mul)
+    // ==================================================================
+    {
+        float* g   = (float*)(dram_base + 0);
+        float* u   = (float*)(dram_base + 8192);
+        float* out = (float*)(dram_base + 0);
+        npu_silu_mul_tile(out, g, u, 16, 128);
+    }
+
+    // ==================================================================
     // Step 34: Node 'deepseek_layer_0_moe_expert_1_down_mm' (Op: matmul)
     // ==================================================================
     {
         // Tensor Offsets in Global DRAM
-        float* dev_X = (float*)(dram_base + 8192);
+        float* dev_X = (float*)(dram_base + 0);
         float* dev_W = (float*)(dram_base + 262144);
         float* dev_Y = (float*)(dram_base + 0);
 
