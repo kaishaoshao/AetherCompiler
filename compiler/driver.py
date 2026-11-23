@@ -13,11 +13,9 @@ import subprocess
 from typing import Dict, List, Tuple, Optional, Any, Union
 from frontend import Graph, Tensor
 from backend import RiscvNpuCodeGenerator
-from runtime import (
-    VirtualNPUSimulator,
-    TimelineSemaphore,
-    CommandBuffer,
-    AsyncDeviceQueue,
+from runtime.simulator import VirtualNPUSimulator
+from runtime.command_buffer import TimelineSemaphore, CommandBuffer, AsyncDeviceQueue
+from runtime.profiler import (
     NPUHardwareProfile,
     PerformanceMetrics,
     ComparisonReport,

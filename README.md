@@ -231,16 +231,19 @@ python3 benchmark.py
 
 ### 3. 执行模块专项测试套件
 ```bash
-# 1. 验证 LLVM/MLIR PassRegistry 与文本化流水线
+# 1. 验证端到端自回归推理引擎与 Paged KV-Cache 生成循环 (Prefill -> Decode Loop -> Sampler)
+python3 test_inference_engine.py
+
+# 2. 验证 LLVM/MLIR PassRegistry 与文本化流水线
 python3 test_pass_registry.py
 
-# 2. 验证形状静态契约、多维广播、DCE 与 2D DMA 边界安全
+# 3. 验证形状静态契约、多维广播、DCE 与 2D DMA 边界安全
 python3 test_compiler_polish.py
 
-# 3. 验证 SymInt 全动态符号约束求解与循环守卫消除
+# 4. 验证 SymInt 全动态符号约束求解与循环守卫消除
 python3 test_sym_int_solver.py
 
-# 4. 验证 SafeTensors、PyTorch FX 与 MLIR 多源前端摄入
+# 5. 验证 SafeTensors、PyTorch FX 与 MLIR 多源前端摄入
 python3 test_frontend_ingestion.py
 ```
 All tests pass 100% out-of-the-box!

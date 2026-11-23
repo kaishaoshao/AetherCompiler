@@ -7,6 +7,7 @@ from .profiler import (
     ComparisonReport,
     NPUPerformanceProfiler
 )
+from .inference_engine import ZenInferenceEngine, SimpleTokenizer, GenerationResult
 
 __all__ = [
     "VirtualNPUSimulator",
@@ -17,6 +18,9 @@ __all__ = [
     "TimelineSemaphore",
     "CommandBuffer",
     "AsyncDeviceQueue",
+    "ZenInferenceEngine",
+    "SimpleTokenizer",
+    "GenerationResult",
     "NPUHardwareProfile",
     "PerformanceMetrics",
     "ComparisonReport",

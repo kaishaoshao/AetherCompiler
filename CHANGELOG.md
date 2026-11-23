@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.9.0] - 2026-11-23
+
+### Added
+- **Lightweight Autoregressive Inference Engine (`ZenInferenceEngine`)**:
+  - Implemented dual-phase execution: Prefill Phase ($M = S$) for prompt ingestion and Decode Phase ($M = 1$) for bandwidth-optimized token generation.
+  - Integrated `PagedKVCacheManager` for zero-fragmentation physical block table allocation in simulated HBM, adhering to ADR-4 ("KV cache as runtime concern, not compiler concern").
+  - Implemented complete generation loop with token embedding lookup, LM head logit projection, and greedy/temperature sampling.
+  - Implemented serving telemetry: Time-To-First-Token (TTFT), Time-Per-Output-Token (TPOT), inference throughput (tokens/s), and physical KV-cache utilization.
+- **Verification Suite**:
+  - Created `test_inference_engine.py` validating tokenizer roundtrip, multi-block paged KV-cache allocation, prefill/decode phases, autoregressive generation loop, and 100% zero-leak memory block reclamation across sessions (4/4 phases passing 100%).
+
+---
+
 ## [0.8.0] - 2026-11-23
 
 ### Added
