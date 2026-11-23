@@ -22,17 +22,21 @@ def _ref_matmul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
 
 def _ref_add(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A, B = inputs[0], inputs[1]
-    M, N = len(A), len(A[0])
-    out = [[0.0] * N for _ in range(M)]
-    if isinstance(B[0], list):
-        for i in range(M):
-            for j in range(N):
-                out[i][j] = A[i][j] + B[i][j]
+    # Handle 1D + 1D
+    if not isinstance(A[0], list) and not isinstance(B[0], list):
+        return [[a + b for a, b in zip(A, B)]]
+    # Handle 1D + 2D
+    elif not isinstance(A[0], list) and isinstance(B[0], list):
+        M, N = len(B), len(B[0])
+        return [[[A[j] + B[i][j] for j in range(N)] for i in range(M)]]
+    # Handle 2D + 1D (Bias Add)
+    elif isinstance(A[0], list) and not isinstance(B[0], list):
+        M, N = len(A), len(A[0])
+        return [[[A[i][j] + B[j] for j in range(N)] for i in range(M)]]
+    # Handle 2D + 2D
     else:
-        for i in range(M):
-            for j in range(N):
-                out[i][j] = A[i][j] + B[j]
-    return [out]
+        M, N = len(A), len(A[0])
+        return [[[A[i][j] + B[i][j] for j in range(N)] for i in range(M)]]
 
 def _ref_relu(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A = inputs[0]
@@ -60,8 +64,21 @@ def _ref_gelu(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
 
 def _ref_mul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A, B = inputs[0], inputs[1]
-    M, N = len(A), len(A[0])
-    return [[[A[i][j] * B[i][j] for j in range(N)] for i in range(M)]]
+    # Handle 1D * 1D
+    if not isinstance(A[0], list) and not isinstance(B[0], list):
+        return [[a * b for a, b in zip(A, B)]]
+    # Handle 1D * 2D
+    elif not isinstance(A[0], list) and isinstance(B[0], list):
+        M, N = len(B), len(B[0])
+        return [[[A[j] * B[i][j] for j in range(N)] for i in range(M)]]
+    # Handle 2D * 1D
+    elif isinstance(A[0], list) and not isinstance(B[0], list):
+        M, N = len(A), len(A[0])
+        return [[[A[i][j] * B[j] for j in range(N)] for i in range(M)]]
+    # Handle 2D * 2D
+    else:
+        M, N = len(A), len(A[0])
+        return [[[A[i][j] * B[i][j] for j in range(N)] for i in range(M)]]
 
 def _ref_softmax(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A = inputs[0]

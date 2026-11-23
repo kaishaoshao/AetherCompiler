@@ -19,7 +19,8 @@ from midend import (
     MemoryPlanningPass,
     FlowDispatchPass,
     FlowModule,
-    TilingAndPipelinePass
+    TilingAndPipelinePass,
+    DeadCodeEliminationPass
 )
 from backend import RiscvNpuCodeGenerator
 from runtime import (
@@ -174,6 +175,7 @@ class ZenNPUCompiler:
         pm.add_pass(ConstantFoldingAndPrepackPass(sram_capacity_bytes=self.sram_bytes))
         pm.add_pass(HorizontalFusionPass())
         pm.add_pass(OperatorFusionPass())
+        pm.add_pass(DeadCodeEliminationPass())
         return pm
 
     def compile(self, graph: Graph, solver: Optional[SymbolicConstraintSolver] = None) -> CompiledArtifact:

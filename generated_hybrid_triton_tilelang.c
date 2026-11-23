@@ -53,12 +53,30 @@ static inline void npu_rope_tile(float* out, const float* in, const float* cos_t
 static inline void npu_flash_attention_tile(float* out, const float* q, const float* k, const float* v, int tokens, int dim) {
     asm volatile (".insn r 0x0b, 0, 7, %0, %1, %2\n" : : "r"(out), "r"(q), "r"(k) : "memory");
 }
+static inline void npu_dma_async_2d(void* dst, const void* src, int rows, int cols, int dst_stride, int src_stride, size_t elem_size) {
+    if (cols == dst_stride && cols == src_stride) {
+        npu_dma_async(dst, src, (size_t)rows * cols * elem_size);
+    } else {
+        for (int r = 0; r < rows; ++r) {
+            npu_dma_async((char*)dst + r * dst_stride * elem_size, (const char*)src + r * src_stride * elem_size, (size_t)cols * elem_size);
+        }
+    }
+}
 #else
 // C Host Emulation Reference (with 4-Way Loop Unrolling & Instruction-Level Parallelism)
 static inline void npu_dma_async(void* dst, const void* src, size_t bytes) {
     memcpy(dst, src, bytes);
 }
 static inline void npu_dma_wait(void) {}
+static inline void npu_dma_async_2d(void* dst, const void* src, int rows, int cols, int dst_stride, int src_stride, size_t elem_size) {
+    if (cols == dst_stride && cols == src_stride) {
+        memcpy(dst, src, (size_t)rows * cols * elem_size);
+    } else {
+        for (int r = 0; r < rows; ++r) {
+            memcpy((char*)dst + r * dst_stride * elem_size, (const char*)src + r * src_stride * elem_size, (size_t)cols * elem_size);
+        }
+    }
+}
 static inline void npu_matmul_tile(float* c, const float* a, const float* b, int bm, int bn, int bk) {
     for (int i = 0; i < bm; ++i) {
         for (int j = 0; j < bn; ++j) {

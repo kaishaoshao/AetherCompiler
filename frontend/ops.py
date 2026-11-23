@@ -26,19 +26,71 @@ class OpNode:
         attr_str = f", attrs={self.attrs}" if self.attrs else ""
         return f"{self.name}: {self.op_type}({in_names}) -> ({out_names}){attr_str}"
 
+class ShapeMismatchError(ValueError):
+    """Raised when tensor shapes fail operator static contract verification."""
+    pass
+
+def broadcast_shapes(shape_a: Tuple[Any, ...], shape_b: Tuple[Any, ...]) -> Tuple[Any, ...]:
+    """
+    Standard trailing-aligned multi-dimensional broadcasting (NumPy / PyTorch rules).
+    Supports both concrete integer and SymExpr dynamic shapes.
+    """
+    rank_a = len(shape_a)
+    rank_b = len(shape_b)
+    max_rank = max(rank_a, rank_b)
+
+    padded_a = (1,) * (max_rank - rank_a) + shape_a
+    padded_b = (1,) * (max_rank - rank_b) + shape_b
+
+    out_shape = []
+    for d_a, d_b in zip(padded_a, padded_b):
+        if d_a == d_b:
+            out_shape.append(d_a)
+        elif d_a == 1:
+            out_shape.append(d_b)
+        elif d_b == 1:
+            out_shape.append(d_a)
+        else:
+            if isinstance(d_a, int) and isinstance(d_b, int):
+                raise ShapeMismatchError(
+                    f"Incompatible broadcast shapes: {shape_a} and {shape_b} (dimensions {d_a} != {d_b})"
+                )
+            out_shape.append(d_a if not isinstance(d_a, int) else d_b)
+
+    return tuple(out_shape)
+
 # Op Builders
 def matmul(a: Tensor, b: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
-    # a: [M, K], b: [K, N] -> [M, N]
-    M = a.shape[0]
-    N = b.shape[1]
+    """
+    Matrix multiplication with static contract validation.
+    Supports 2D and Batched (N-D) matrix multiplication.
+    """
+    if len(a.shape) < 2 or len(b.shape) < 2:
+        raise ShapeMismatchError(
+            f"MatMul requires tensors of rank >= 2, got a:{a.shape} (rank {len(a.shape)}) and b:{b.shape} (rank {len(b.shape)})"
+        )
+    k_a = a.shape[-1]
+    k_b = b.shape[-2]
+    if isinstance(k_a, int) and isinstance(k_b, int) and k_a != k_b:
+        raise ShapeMismatchError(
+            f"MatMul inner dimension mismatch: tensor '{a.name}' with shape {a.shape} "
+            f"cannot multiply '{b.name}' with shape {b.shape} (K_a={k_a} != K_b={k_b})"
+        )
+    batch_a = a.shape[:-2]
+    batch_b = b.shape[:-2]
+    batch_out = broadcast_shapes(batch_a, batch_b) if (batch_a or batch_b) else ()
+    M = a.shape[-2]
+    N = b.shape[-1]
+    out_shape = batch_out + (M, N)
     out_name = f"{name}_out" if name else f"mm_out_{id(a)%100}"
-    out_tensor = Tensor(out_name, (M, N), a.dtype)
+    out_tensor = Tensor(out_name, out_shape, a.dtype)
     node = OpNode("matmul", [a, b], [out_tensor], name=name or out_name)
     return node, out_tensor
 
 def add(a: Tensor, b: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
+    out_shape = broadcast_shapes(a.shape, b.shape)
     out_name = f"{name}_out" if name else f"add_out_{id(a)%100}"
-    out_tensor = Tensor(out_name, a.shape, a.dtype)
+    out_tensor = Tensor(out_name, out_shape, a.dtype)
     node = OpNode("add", [a, b], [out_tensor], name=name or out_name)
     return node, out_tensor
 
@@ -49,6 +101,10 @@ def relu(a: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
     return node, out_tensor
 
 def rmsnorm(x: Tensor, weight: Tensor, eps: float = 1e-5, name: str = "") -> Tuple[OpNode, Tensor]:
+    if weight.shape[-1] != x.shape[-1]:
+        raise ShapeMismatchError(
+            f"RMSNorm weight dimension mismatch: input dim {x.shape[-1]} != weight dim {weight.shape[-1]}"
+        )
     out_name = f"{name}_out" if name else f"rmsnorm_out_{id(x)%100}"
     out_tensor = Tensor(out_name, x.shape, x.dtype)
     node = OpNode("rmsnorm", [x, weight], [out_tensor], name=name or out_name, attrs={"eps": eps})
@@ -67,8 +123,9 @@ def gelu(x: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
     return node, out_tensor
 
 def mul(a: Tensor, b: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
+    out_shape = broadcast_shapes(a.shape, b.shape)
     out_name = f"{name}_out" if name else f"mul_out_{id(a)%100}"
-    out_tensor = Tensor(out_name, a.shape, a.dtype)
+    out_tensor = Tensor(out_name, out_shape, a.dtype)
     node = OpNode("mul", [a, b], [out_tensor], name=name or out_name)
     return node, out_tensor
 
@@ -90,6 +147,10 @@ def rope(x: Tensor, cos: Tensor, sin: Tensor, name: str = "") -> Tuple[OpNode, T
     Rotary Position Embedding (RoPE) as used in Qwen, LLaMA, etc.
     x: [Tokens, Dim], cos: [Tokens, Dim], sin: [Tokens, Dim] -> [Tokens, Dim]
     """
+    if cos.shape[-1] != sin.shape[-1] or x.shape[-1] != cos.shape[-1]:
+        raise ShapeMismatchError(
+            f"RoPE dimension mismatch: x:{x.shape}, cos:{cos.shape}, sin:{sin.shape}"
+        )
     out_name = f"{name}_out" if name else f"rope_out_{id(x)%100}"
     out_tensor = Tensor(out_name, x.shape, x.dtype)
     node = OpNode("rope", [x, cos, sin], [out_tensor], name=name or out_name)

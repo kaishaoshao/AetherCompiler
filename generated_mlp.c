@@ -53,12 +53,30 @@ static inline void npu_rope_tile(float* out, const float* in, const float* cos_t
 static inline void npu_flash_attention_tile(float* out, const float* q, const float* k, const float* v, int tokens, int dim) {
     asm volatile (".insn r 0x0b, 0, 7, %0, %1, %2\n" : : "r"(out), "r"(q), "r"(k) : "memory");
 }
+static inline void npu_dma_async_2d(void* dst, const void* src, int rows, int cols, int dst_stride, int src_stride, size_t elem_size) {
+    if (cols == dst_stride && cols == src_stride) {
+        npu_dma_async(dst, src, (size_t)rows * cols * elem_size);
+    } else {
+        for (int r = 0; r < rows; ++r) {
+            npu_dma_async((char*)dst + r * dst_stride * elem_size, (const char*)src + r * src_stride * elem_size, (size_t)cols * elem_size);
+        }
+    }
+}
 #else
 // C Host Emulation Reference (with 4-Way Loop Unrolling & Instruction-Level Parallelism)
 static inline void npu_dma_async(void* dst, const void* src, size_t bytes) {
     memcpy(dst, src, bytes);
 }
 static inline void npu_dma_wait(void) {}
+static inline void npu_dma_async_2d(void* dst, const void* src, int rows, int cols, int dst_stride, int src_stride, size_t elem_size) {
+    if (cols == dst_stride && cols == src_stride) {
+        memcpy(dst, src, (size_t)rows * cols * elem_size);
+    } else {
+        for (int r = 0; r < rows; ++r) {
+            memcpy((char*)dst + r * dst_stride * elem_size, (const char*)src + r * src_stride * elem_size, (size_t)cols * elem_size);
+        }
+    }
+}
 static inline void npu_matmul_tile(float* c, const float* a, const float* b, int bm, int bn, int bk) {
     for (int i = 0; i < bm; ++i) {
         for (int j = 0; j < bn; ++j) {
@@ -201,38 +219,45 @@ void run_model(uint8_t* dram_base, int core_id) {
         static float sram_c[32 * 64];
         static float sram_bias[64];
 
-        // IREE Flow: Multi-core loop partitioning over dimension M
+        // IREE Flow Adaptive Partitioning: Prefill/Batch Phase -> Partition along M rows
         int chunk_m = (32 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
         int m_start = core_id * chunk_m;
         int m_end   = (m_start + chunk_m < 32) ? (m_start + chunk_m) : 32;
+        int n_start = 0;
+        int n_end   = 64;
 
         for (int m = m_start; m < m_end; m += 32) {
-            for (int n = 0; n < 64; n += 64) {
+            int actual_bm = (m + 32 <= m_end) ? 32 : (m_end - m);
+            for (int n = n_start; n < n_end; n += 64) {
+                int actual_bn = (n + 64 <= n_end) ? 64 : (n_end - n);
                 memset(sram_c, 0, sizeof(sram_c));
-                npu_dma_async(sram_bias, &dev_B[n], 64 * sizeof(float));
+                npu_dma_async(sram_bias, &dev_B[n], actual_bn * sizeof(float));
                 npu_dma_wait();
                 int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 32 * 8 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 64 + n], 8 * 64 * sizeof(float));
+                int init_bk = (64 < 8) ? 64 : 8;
+                // 1. Prefetch Stage 0 Tile (Boundary Safe 2D DMA)
+                npu_dma_async_2d(sram_a[p], &dev_X[m * 64 + 0], actual_bm, init_bk, 8, 64, sizeof(float));
+                npu_dma_async_2d(sram_b[p], &dev_W[0 * 64 + n], init_bk, actual_bn, 64, 64, sizeof(float));
 
                 for (int k = 0; k < 64; k += 8) {
                     npu_dma_wait(); // Wait for tile [p]
                     int next_p = 1 - p;
+                    int actual_bk = (k + 8 <= 64) ? 8 : (64 - k);
                     if (k + 8 < 64) {
+                        int next_bk = (k + 2 * 8 <= 64) ? 8 : (64 - (k + 8));
                         // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 8)], 32 * 8 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 8) * 64 + n], 8 * 64 * sizeof(float));
+                        npu_dma_async_2d(sram_a[next_p], &dev_X[m * 64 + (k + 8)], actual_bm, next_bk, 8, 64, sizeof(float));
+                        npu_dma_async_2d(sram_b[next_p], &dev_W[(k + 8) * 64 + n], next_bk, actual_bn, 64, 64, sizeof(float));
                     }
                     // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 32, 64, 8);
+                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], actual_bm, actual_bn, actual_bk);
                     p = next_p;
                 }
 
                 // 4. Fused Epilogue: Bias Add + ReLU in-place on SRAM
-                npu_bias_relu_tile(sram_c, sram_bias, 32, 64);
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 64 + n], sram_c, 32 * 64 * sizeof(float));
+                npu_bias_relu_tile(sram_c, sram_bias, actual_bm, actual_bn);
+                // 5. Store result back to Global DRAM via DMA (Boundary Safe 2D DMA)
+                npu_dma_async_2d(&dev_Y[m * 64 + n], sram_c, actual_bm, actual_bn, 64, 64, sizeof(float));
                 npu_dma_wait();
             }
         }
@@ -252,34 +277,41 @@ void run_model(uint8_t* dram_base, int core_id) {
         static float sram_b[2][16 * 32];
         static float sram_c[32 * 32];
 
-        // IREE Flow: Multi-core loop partitioning over dimension M
+        // IREE Flow Adaptive Partitioning: Prefill/Batch Phase -> Partition along M rows
         int chunk_m = (32 + NUM_NPU_CORES - 1) / NUM_NPU_CORES;
         int m_start = core_id * chunk_m;
         int m_end   = (m_start + chunk_m < 32) ? (m_start + chunk_m) : 32;
+        int n_start = 0;
+        int n_end   = 32;
 
         for (int m = m_start; m < m_end; m += 32) {
-            for (int n = 0; n < 32; n += 32) {
+            int actual_bm = (m + 32 <= m_end) ? 32 : (m_end - m);
+            for (int n = n_start; n < n_end; n += 32) {
+                int actual_bn = (n + 32 <= n_end) ? 32 : (n_end - n);
                 memset(sram_c, 0, sizeof(sram_c));
                 int p = 0; // Ping-pong index
-                // 1. Prefetch Stage 0 Tile
-                npu_dma_async(sram_a[p], &dev_X[m * 64 + 0], 32 * 16 * sizeof(float));
-                npu_dma_async(sram_b[p], &dev_W[0 * 32 + n], 16 * 32 * sizeof(float));
+                int init_bk = (64 < 16) ? 64 : 16;
+                // 1. Prefetch Stage 0 Tile (Boundary Safe 2D DMA)
+                npu_dma_async_2d(sram_a[p], &dev_X[m * 64 + 0], actual_bm, init_bk, 16, 64, sizeof(float));
+                npu_dma_async_2d(sram_b[p], &dev_W[0 * 32 + n], init_bk, actual_bn, 32, 32, sizeof(float));
 
                 for (int k = 0; k < 64; k += 16) {
                     npu_dma_wait(); // Wait for tile [p]
                     int next_p = 1 - p;
+                    int actual_bk = (k + 16 <= 64) ? 16 : (64 - k);
                     if (k + 16 < 64) {
+                        int next_bk = (k + 2 * 16 <= 64) ? 16 : (64 - (k + 16));
                         // 2. Overlap DMA for next tile [next_p]
-                        npu_dma_async(sram_a[next_p], &dev_X[m * 64 + (k + 16)], 32 * 16 * sizeof(float));
-                        npu_dma_async(sram_b[next_p], &dev_W[(k + 16) * 32 + n], 16 * 32 * sizeof(float));
+                        npu_dma_async_2d(sram_a[next_p], &dev_X[m * 64 + (k + 16)], actual_bm, next_bk, 16, 64, sizeof(float));
+                        npu_dma_async_2d(sram_b[next_p], &dev_W[(k + 16) * 32 + n], next_bk, actual_bn, 32, 32, sizeof(float));
                     }
                     // 3. Matrix Coprocessor Tile Compute
-                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], 32, 32, 16);
+                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], actual_bm, actual_bn, actual_bk);
                     p = next_p;
                 }
 
-                // 5. Store result back to Global DRAM via DMA
-                npu_dma_async(&dev_Y[m * 32 + n], sram_c, 32 * 32 * sizeof(float));
+                // 5. Store result back to Global DRAM via DMA (Boundary Safe 2D DMA)
+                npu_dma_async_2d(&dev_Y[m * 32 + n], sram_c, actual_bm, actual_bn, 32, 32, sizeof(float));
                 npu_dma_wait();
             }
         }

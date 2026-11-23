@@ -4,6 +4,7 @@ from .flow_dispatch import FlowDispatchPass, FlowExecutable, DispatchRegion, Buf
 from .tvm_pipeline import TilingAndPipelinePass, TilingSchedule
 from .weight_prepack import ConstantFoldingAndPrepackPass
 from .horizontal_fusion import HorizontalFusionPass
+from .dce import DeadCodeEliminationPass
 
 __all__ = [
     "OperatorFusionPass",
@@ -16,5 +17,6 @@ __all__ = [
     "TilingAndPipelinePass",
     "TilingSchedule",
     "ConstantFoldingAndPrepackPass",
-    "HorizontalFusionPass"
+    "HorizontalFusionPass",
+    "DeadCodeEliminationPass"
 ]

@@ -87,12 +87,30 @@ static inline void npu_rope_tile(float* out, const float* in, const float* cos_t
 static inline void npu_flash_attention_tile(float* out, const float* q, const float* k, const float* v, int tokens, int dim) {
     asm volatile (".insn r 0x0b, 0, 7, %0, %1, %2\\n" : : "r"(out), "r"(q), "r"(k) : "memory");
 }
+static inline void npu_dma_async_2d(void* dst, const void* src, int rows, int cols, int dst_stride, int src_stride, size_t elem_size) {
+    if (cols == dst_stride && cols == src_stride) {
+        npu_dma_async(dst, src, (size_t)rows * cols * elem_size);
+    } else {
+        for (int r = 0; r < rows; ++r) {
+            npu_dma_async((char*)dst + r * dst_stride * elem_size, (const char*)src + r * src_stride * elem_size, (size_t)cols * elem_size);
+        }
+    }
+}
 #else
 // C Host Emulation Reference (with 4-Way Loop Unrolling & Instruction-Level Parallelism)
 static inline void npu_dma_async(void* dst, const void* src, size_t bytes) {
     memcpy(dst, src, bytes);
 }
 static inline void npu_dma_wait(void) {}
+static inline void npu_dma_async_2d(void* dst, const void* src, int rows, int cols, int dst_stride, int src_stride, size_t elem_size) {
+    if (cols == dst_stride && cols == src_stride) {
+        memcpy(dst, src, (size_t)rows * cols * elem_size);
+    } else {
+        for (int r = 0; r < rows; ++r) {
+            memcpy((char*)dst + r * dst_stride * elem_size, (const char*)src + r * src_stride * elem_size, (size_t)cols * elem_size);
+        }
+    }
+}
 static inline void npu_matmul_tile(float* c, const float* a, const float* b, int bm, int bn, int bk) {
     for (int i = 0; i < bm; ++i) {
         for (int j = 0; j < bn; ++j) {
@@ -254,42 +272,61 @@ static inline void npu_flash_attention_tile(float* out, const float* q, const fl
                 if B:
                     lines.append(f"        static float sram_bias[{BN}];")
 
-                lines.append(f"\n        // IREE Flow: Multi-core loop partitioning over dimension M")
-                lines.append(f"        int chunk_m = ({M} + NUM_NPU_CORES - 1) / NUM_NPU_CORES;")
-                lines.append(f"        int m_start = core_id * chunk_m;")
-                lines.append(f"        int m_end   = (m_start + chunk_m < {M}) ? (m_start + chunk_m) : {M};\n")
+                # Adaptive Multi-Core Partitioning:
+                # If M is concrete and M < NUM_NPU_CORES (e.g. Decode phase M=1), partition across N columns!
+                is_decode_mode = isinstance(M, int) and (M < self.num_cores)
+
+                if is_decode_mode:
+                    lines.append(f"\n        // IREE Flow Adaptive Partitioning: Decode Phase (M={M} < {self.num_cores} cores) -> Partition along N columns")
+                    lines.append(f"        int chunk_n = ({N} + NUM_NPU_CORES - 1) / NUM_NPU_CORES;")
+                    lines.append(f"        int n_start = core_id * chunk_n;")
+                    lines.append(f"        int n_end   = (n_start + chunk_n < {N}) ? (n_start + chunk_n) : {N};")
+                    lines.append(f"        int m_start = 0;")
+                    lines.append(f"        int m_end   = {M};\n")
+                else:
+                    lines.append(f"\n        // IREE Flow Adaptive Partitioning: Prefill/Batch Phase -> Partition along M rows")
+                    lines.append(f"        int chunk_m = ({M} + NUM_NPU_CORES - 1) / NUM_NPU_CORES;")
+                    lines.append(f"        int m_start = core_id * chunk_m;")
+                    lines.append(f"        int m_end   = (m_start + chunk_m < {M}) ? (m_start + chunk_m) : {M};")
+                    lines.append(f"        int n_start = 0;")
+                    lines.append(f"        int n_end   = {N};\n")
 
                 lines.append(f"        for (int m = m_start; m < m_end; m += {BM}) {{")
-                lines.append(f"            for (int n = 0; n < {N}; n += {BN}) {{")
+                lines.append(f"            int actual_bm = (m + {BM} <= m_end) ? {BM} : (m_end - m);")
+                lines.append(f"            for (int n = n_start; n < n_end; n += {BN}) {{")
+                lines.append(f"                int actual_bn = (n + {BN} <= n_end) ? {BN} : (n_end - n);")
                 lines.append(f"                memset(sram_c, 0, sizeof(sram_c));")
                 if B:
-                    lines.append(f"                npu_dma_async(sram_bias, &dev_B[n], {BN} * sizeof(float));")
+                    lines.append(f"                npu_dma_async(sram_bias, &dev_B[n], actual_bn * sizeof(float));")
                     lines.append(f"                npu_dma_wait();")
 
                 lines.append(f"                int p = 0; // Ping-pong index")
-                lines.append(f"                // 1. Prefetch Stage 0 Tile")
-                lines.append(f"                npu_dma_async(sram_a[p], &dev_X[m * {K} + 0], {BM} * {BK} * sizeof(float));")
-                lines.append(f"                npu_dma_async(sram_b[p], &dev_W[0 * {N} + n], {BK} * {BN} * sizeof(float));\n")
+                lines.append(f"                int init_bk = ({K} < {BK}) ? {K} : {BK};")
+                lines.append(f"                // 1. Prefetch Stage 0 Tile (Boundary Safe 2D DMA)")
+                lines.append(f"                npu_dma_async_2d(sram_a[p], &dev_X[m * {K} + 0], actual_bm, init_bk, {BK}, {K}, sizeof(float));")
+                lines.append(f"                npu_dma_async_2d(sram_b[p], &dev_W[0 * {N} + n], init_bk, actual_bn, {BN}, {N}, sizeof(float));\n")
 
                 lines.append(f"                for (int k = 0; k < {K}; k += {BK}) {{")
                 lines.append(f"                    npu_dma_wait(); // Wait for tile [p]")
                 lines.append(f"                    int next_p = 1 - p;")
+                lines.append(f"                    int actual_bk = (k + {BK} <= {K}) ? {BK} : ({K} - k);")
                 lines.append(f"                    if (k + {BK} < {K}) {{")
+                lines.append(f"                        int next_bk = (k + 2 * {BK} <= {K}) ? {BK} : ({K} - (k + {BK}));")
                 lines.append(f"                        // 2. Overlap DMA for next tile [next_p]")
-                lines.append(f"                        npu_dma_async(sram_a[next_p], &dev_X[m * {K} + (k + {BK})], {BM} * {BK} * sizeof(float));")
-                lines.append(f"                        npu_dma_async(sram_b[next_p], &dev_W[(k + {BK}) * {N} + n], {BK} * {BN} * sizeof(float));")
+                lines.append(f"                        npu_dma_async_2d(sram_a[next_p], &dev_X[m * {K} + (k + {BK})], actual_bm, next_bk, {BK}, {K}, sizeof(float));")
+                lines.append(f"                        npu_dma_async_2d(sram_b[next_p], &dev_W[(k + {BK}) * {N} + n], next_bk, actual_bn, {BN}, {N}, sizeof(float));")
                 lines.append(f"                    }}")
                 lines.append(f"                    // 3. Matrix Coprocessor Tile Compute")
-                lines.append(f"                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], {BM}, {BN}, {BK});")
+                lines.append(f"                    npu_matmul_tile(sram_c, sram_a[p], sram_b[p], actual_bm, actual_bn, actual_bk);")
                 lines.append(f"                    p = next_p;")
                 lines.append(f"                }}\n")
 
                 if node.op_type == "fused_matmul_add_relu":
                     lines.append(f"                // 4. Fused Epilogue: Bias Add + ReLU in-place on SRAM")
-                    lines.append(f"                npu_bias_relu_tile(sram_c, sram_bias, {BM}, {BN});")
+                    lines.append(f"                npu_bias_relu_tile(sram_c, sram_bias, actual_bm, actual_bn);")
 
-                lines.append(f"                // 5. Store result back to Global DRAM via DMA")
-                lines.append(f"                npu_dma_async(&dev_Y[m * {N} + n], sram_c, {BM} * {BN} * sizeof(float));")
+                lines.append(f"                // 5. Store result back to Global DRAM via DMA (Boundary Safe 2D DMA)")
+                lines.append(f"                npu_dma_async_2d(&dev_Y[m * {N} + n], sram_c, actual_bm, actual_bn, {N}, {BN}, sizeof(float));")
                 lines.append(f"                npu_dma_wait();")
                 lines.append(f"            }}")
                 lines.append(f"        }}")
