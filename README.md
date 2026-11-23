@@ -22,6 +22,18 @@
 * 📕 **[异构存储介质抽象与超异构芯片编译分发技术规范 (`docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md`)](docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md)**: 3D DRAM、HBF 闪存、LPDDR5X、PIM 近存计算、硬件数据搬运原语（DMA/NoC 多播/DAE）、声明式 SoC 建模与主流芯片架构对比（Tenstorrent / TPU / Groq / AIE）。
 * 📗 **[版本更新日志 (`CHANGELOG.md`)](CHANGELOG.md)**: 遵循 Keep a Changelog 规范的完整版本演进历史。
 
+### 🧩 编译器算法与设计哲学专题 (`docs/compiler/` 或 `docx/compiler/`)
+1. **[01. 现代 AI 编译器架构设计哲学与范型演进](docs/compiler/01_COMPILER_PHILOSOPHY_AND_PARADIGMS.md)**：解耦中后端、数据搬运第一、存算分离、LLVM/MLIR/TVM/IREE/MAX 横向对比。
+2. **[02. 编译器 Pass 架构与中端核心图优化算法](docs/compiler/02_PASS_INFRASTRUCTURE_AND_OPTIMIZATIONS.md)**：PassRegistry 文本流水线、常量折叠与 4D 瓦片重排、水平融合（QKV 削减 66.7% 访存）、模式垂直融合、DCE、区间染色内存规划。
+3. **[03. 动态符号形状与 Presburger 算术约束求解器](docs/compiler/03_SYMBOLIC_SHAPE_AND_PRESBURGER_SOLVER.md)**：SymInt 符号代数、区间推导与上界锁定、整除性证明、循环守卫消除（Loop Guard Elimination）。
+4. **[04. 动态分块搜索、双缓冲软件流水与自适应调度](docs/compiler/04_DYNAMIC_SCHEDULING_AND_TILING.md)**：SRAM 几何约束、Ping-Pong 双缓冲存算掩盖条件、Prefill 行切分 vs Decode 列切分自适应负载均衡。
+
+### ⚡ 芯片架构、指令集、存储介质与数据搬运专题 (`docs/arch/` 或 `docx/arch/`)
+1. **[01. 现代 AI 芯片架构演进与片内/片间互联技术](docs/arch/01_CHIP_ARCHITECTURE_AND_INTERCONNECT.md)**：Chiplet 芯粒堆叠、2.5D CoWoS / 3D SoIC、UCIe / BoW / NVLink-C2C / CXL、2D Mesh NoC 组播、Tenstorrent/Groq/Cerebras 剖析。
+2. **[02. 指令集架构与硬件加速接口规范](docs/arch/02_INSTRUCTION_SETS_AND_HARDWARE_INTERFACES.md)**：RISC-V RV64GC 控制面、`custom-0` 脉动张量指令扩展、2D 跨步 DMA 描述符与门铃机制、硬件时间线信号量。
+3. **[03. 存储介质物理特性全景与层次化存储体系](docs/arch/03_STORAGE_MEDIA_AND_MEMORY_HIERARCHY.md)**：3D DRAM (HBM4)、HBF 闪存读写极端不对称性与 4KB 页面对齐、LPDDR5X、CXL 扩展内存、PIM 近存 Bank、片上多级 SRAM 参数矩阵。
+4. **[04. 硬件数据搬运原语、片间/片内流转与同步机制](docs/arch/04_DATA_MOVEMENT_AND_SYNCHRONIZATION.md)**：DMA 1D/2D、NoC 组播、Gather/Scatter、流式 FIFO、PIM 原位归约、传输代价估计公式、时间线信号量与信用点环形缓冲区。
+
 ---
 
 ## 目录索引 (Table of Contents)

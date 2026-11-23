@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.11.0] - 2026-11-24
+
+### Added
+- **Modular Compiler & Architecture Documentation Library (`docs/` / `docx/`)**:
+  - Established structured subdirectories `docs/compiler/` and `docs/arch/` (with `docx/` alias) decoupling middle-end compilation from backend chip targets and focusing on storage media and data movement.
+  - **Compiler Algorithms & Paradigms Series (`docs/compiler/`)**:
+    - `01_COMPILER_PHILOSOPHY_AND_PARADIGMS.md`: Modern AI compiler paradigms, middle-end decoupling from concrete chips, data-movement-first philosophy, DAE, and cross-compiler study (LLVM, MLIR, TVM, IREE, Modular MAX).
+    - `02_PASS_INFRASTRUCTURE_AND_OPTIMIZATIONS.md`: Textual pipeline parsing, constant folding & 4D tile pre-packing, horizontal QKV fusion (66.7% read reduction), pattern-based vertical fusion (FlashAttn, SwiGLU), DCE, and interval-coloring dynamic memory reuse.
+    - `03_SYMBOLIC_SHAPE_AND_PRESBURGER_SOLVER.md`: Dynamic shapes in LLM serving, SymInt AST, Presburger linear integer arithmetic, interval bounding, divisibility proofs, and loop guard elimination.
+    - `04_DYNAMIC_SCHEDULING_AND_TILING.md`: Multi-dimensional hardware tiling (BM, BN, BK), Ping-Pong double-buffering overlap condition, timeline semaphores, and adaptive multi-core load balancing (Prefill row-split vs Decode column-split).
+  - **Architecture, Instruction Sets, Storage & Data Movement Series (`docs/arch/`)**:
+    - `01_CHIP_ARCHITECTURE_AND_INTERCONNECT.md`: Reticle limits, 2.5D CoWoS / 3D SoIC advanced packaging, inter-chip/die-to-die interconnects (UCIe, BoW, NVLink-C2C, CXL 3.0), 2D Mesh NoC packet routing, hardware multicast, and case studies (Tenstorrent, Groq, Cerebras).
+    - `02_INSTRUCTION_SETS_AND_HARDWARE_INTERFACES.md`: Hybrid ISAs, RISC-V RV64GC scalar control plane, `.insn r` custom-0 systolic matrix instructions, 2D strided DMA descriptors with boundary clamping, and timeline semaphore registers.
+    - `03_STORAGE_MEDIA_AND_MEMORY_HIERARCHY.md`: Exhaustive physical parameters of 3D DRAM (HBM3e/4), HBF High-Bandwidth Flash (read/write asymmetry & 4KB page alignment), LPDDR5X, CXL pooled memory, PIM near-memory bank engines, and on-chip SRAM.
+    - `04_DATA_MOVEMENT_AND_SYNCHRONIZATION.md`: 6 hardware data mover primitives (1D/2D DMA, NoC Multicast, Gather/Scatter, Streaming FIFO, PIM Direct Reduce), transfer latency formula, credit-based circular buffers, and zero-copy strided views.
+
+---
+
 ## [0.10.0] - 2026-11-23
 
 ### Added
