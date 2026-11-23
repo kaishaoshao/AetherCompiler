@@ -8,6 +8,7 @@ Features an open-ended Pattern Rewriter architecture:
 
 from typing import Dict, List, Set, Optional, Tuple
 from frontend import Graph, OpNode, Tensor
+from compiler.pass_manager import register_pass
 
 class FusionPattern:
     """Base class for all graph rewrite and fusion patterns."""
@@ -266,6 +267,12 @@ class FlashAttentionPattern(FusionPattern):
         return fused_node, {node, qk_node, softmax_node, attn_v_node}
 
 
+@register_pass(
+    name="fusion",
+    description="Vertical pattern-based operator fusion (FlashAttention, MatMul+Add+Act, SwiGLU, GeGLU)",
+    dialect_stage="graph",
+    aliases=["operator-fusion", "vertical-fusion"]
+)
 class OperatorFusionPass:
     def __init__(self, patterns: Optional[List[FusionPattern]] = None):
         # Open registry of fusion patterns: effortlessly extensible

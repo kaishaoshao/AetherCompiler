@@ -11,7 +11,8 @@ Adding new models and new operators requires ZERO modifications to this file.
 
 from typing import List, Dict, Any
 from frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
-from midend import TilingAndPipelinePass, FlowDispatchPass
+from midend.tvm_pipeline import TilingAndPipelinePass
+from midend.flow_dispatch import FlowDispatchPass
 from ir import lower_graph_to_loop_ir, lower_loop_ir_to_command_ir, LoopModule, CommandModule
 
 class RiscvNpuCodeGenerator:

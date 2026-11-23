@@ -11,7 +11,7 @@ import math
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
-from midend import TilingAndPipelinePass, TilingSchedule
+from midend.tvm_pipeline import TilingAndPipelinePass, TilingSchedule
 
 @dataclass
 class NPUHardwareProfile:

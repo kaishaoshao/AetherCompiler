@@ -13,8 +13,16 @@ Architectural Innovations:
 
 from typing import Dict, List, Tuple, Optional, Any, Set
 from frontend import Graph, OpNode, Tensor, StridedLayout, OpRegistry, OpTrait
+from compiler.pass_manager import register_pass
 from .tvm_pipeline import TilingAndPipelinePass, TilingSchedule
 
+@register_pass(
+    name="const-fold",
+    description="Compile-time constant folding & weight prepacking for systolic DMA continuous burst loads",
+    dialect_stage="graph",
+    aliases=["constant-folding", "weight-prepack", "prepack"],
+    options_schema={"sram_capacity_bytes": 16 * 1024}
+)
 class ConstantFoldingAndPrepackPass:
     def __init__(self, sram_capacity_bytes: int = 16 * 1024):
         self.tiler = TilingAndPipelinePass(sram_capacity_bytes)

@@ -10,18 +10,8 @@ Presents a cohesive, production-grade compiler entry point:
 
 import os
 import subprocess
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Union
 from frontend import Graph, Tensor
-from midend import (
-    ConstantFoldingAndPrepackPass,
-    HorizontalFusionPass,
-    OperatorFusionPass,
-    MemoryPlanningPass,
-    FlowDispatchPass,
-    FlowModule,
-    TilingAndPipelinePass,
-    DeadCodeEliminationPass
-)
 from backend import RiscvNpuCodeGenerator
 from runtime import (
     VirtualNPUSimulator,
@@ -34,7 +24,7 @@ from runtime import (
     NPUPerformanceProfiler
 )
 from ir import LoopModule, CommandModule, SymbolicConstraintSolver
-from .pass_manager import PassManager
+from .pass_manager import PassManager, PassRegistry
 
 class CompiledArtifact:
     """
@@ -49,7 +39,7 @@ class CompiledArtifact:
         fused_graph: Graph,
         naive_bytes: int,
         planned_bytes: int,
-        flow_ir: Optional[FlowModule],
+        flow_ir: Optional[Any],
         loop_ir: LoopModule,
         command_ir: CommandModule,
         c_source: str,
@@ -130,7 +120,7 @@ class CompiledArtifact:
         and executes simulation.
         """
         concrete_graph = self.fused_graph.resolve_shapes(dynamic_bindings)
-        mem_planner = MemoryPlanningPass(alignment=64)
+        mem_planner = PassRegistry.create_pass("memory-planning", alignment=64)
         _, dynamic_planned_bytes, _ = mem_planner.run(concrete_graph)
         sim = VirtualNPUSimulator(dynamic_planned_bytes)
         for inp in concrete_graph.inputs:
@@ -152,7 +142,8 @@ class ZenNPUCompiler:
         num_cores: int = 4,
         freq_ghz: float = 1.0,
         print_after_all: bool = False,
-        solver: Optional[SymbolicConstraintSolver] = None
+        solver: Optional[SymbolicConstraintSolver] = None,
+        pipeline: Optional[Union[str, List[Any]]] = None
     ):
         self.sram_kb = sram_kb
         self.num_cores = num_cores
@@ -160,6 +151,7 @@ class ZenNPUCompiler:
         self.print_after_all = print_after_all
         self.sram_bytes = sram_kb * 1024
         self.solver = solver
+        self.pipeline = pipeline or "const-fold,h-fusion,fusion,dce"
 
         self.hw_profile = NPUHardwareProfile(
             frequency_ghz=freq_ghz,
@@ -170,13 +162,29 @@ class ZenNPUCompiler:
         self.codegen = RiscvNpuCodeGenerator(sram_bytes=self.sram_bytes, num_cores=num_cores)
 
     def create_optimization_pipeline(self) -> PassManager:
-        """Constructs the standard progressive optimization pipeline."""
-        pm = PassManager(name="ZenNPU_StandardPipeline", print_after_all=self.print_after_all)
-        pm.add_pass(ConstantFoldingAndPrepackPass(sram_capacity_bytes=self.sram_bytes))
-        pm.add_pass(HorizontalFusionPass())
-        pm.add_pass(OperatorFusionPass())
-        pm.add_pass(DeadCodeEliminationPass())
-        return pm
+        """Constructs the progressive optimization pipeline from specification."""
+        if isinstance(self.pipeline, str):
+            return PassManager.from_pipeline_string(
+                self.pipeline,
+                print_after_all=self.print_after_all,
+                sram_capacity_bytes=self.sram_bytes,
+                num_cores=self.num_cores
+            )
+        elif isinstance(self.pipeline, list):
+            pm = PassManager(name="ZenNPU_CustomPipeline", print_after_all=self.print_after_all)
+            for p in self.pipeline:
+                if isinstance(p, str):
+                    pm.add_pass_by_name(p, sram_capacity_bytes=self.sram_bytes, num_cores=self.num_cores)
+                else:
+                    pm.add_pass(p)
+            return pm
+        else:
+            pm = PassManager(name="ZenNPU_StandardPipeline", print_after_all=self.print_after_all)
+            pm.add_pass_by_name("const-fold", sram_capacity_bytes=self.sram_bytes)
+            pm.add_pass_by_name("h-fusion")
+            pm.add_pass_by_name("fusion")
+            pm.add_pass_by_name("dce")
+            return pm
 
     def compile(self, graph: Graph, solver: Optional[SymbolicConstraintSolver] = None) -> CompiledArtifact:
         """
@@ -200,12 +208,13 @@ class ZenNPUCompiler:
         fused_graph = pipeline.run(graph)
 
         # 2. Dynamic Memory Planning (MAX MGP)
-        mem_planner = MemoryPlanningPass(alignment=64, solver=active_solver)
+        mem_planner = PassRegistry.create_pass("memory-planning", alignment=64, solver=active_solver)
         _, planned_bytes, _ = mem_planner.run(fused_graph)
 
         # 3. Flow Dispatch Formation (IREE Flow Dialect)
-        flow_pass = FlowDispatchPass(num_npu_cores=self.num_cores)
+        flow_pass = PassRegistry.create_pass("flow-dispatch", num_npu_cores=self.num_cores)
         executables, dispatch_regions = flow_pass.run(fused_graph)
+        from midend.flow_dispatch import FlowModule
         flow_module = FlowModule(name=f"{graph.name}_flow", executables=executables, dispatch_regions=dispatch_regions)
 
         # 4. Progressive Lowering to Loop IR (TIR)

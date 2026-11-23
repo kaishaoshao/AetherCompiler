@@ -7,6 +7,7 @@ Middle-End Pass: Tiling & SRAM Software Pipelining (TVM TensorIR 思想).
 
 from typing import Tuple, Union, Optional
 from ir.sym_int import SymExpr, SymbolicConstraintSolver
+from compiler.pass_manager import register_pass
 
 class TilingSchedule:
     def __init__(
@@ -29,10 +30,32 @@ class TilingSchedule:
         guard_str = ", GuardsEliminated=True" if self.guards_eliminated else ""
         return f"TilingSchedule(BM={self.BM}, BN={self.BN}, BK={self.BK}, SRAM={self.sram_bytes_used} B{guard_str})"
 
+@register_pass(
+    name="tiling",
+    description="Multi-level SRAM tiling and double-buffering software pipelining (TVM TensorIR)",
+    dialect_stage="flow -> tir",
+    aliases=["pipeline-tiling", "tvm-tiling"],
+    options_schema={"sram_capacity_bytes": 16 * 1024}
+)
 class TilingAndPipelinePass:
     def __init__(self, sram_capacity_bytes: int = 16 * 1024, solver: Optional[SymbolicConstraintSolver] = None):
         self.sram_capacity_bytes = sram_capacity_bytes
         self.solver = solver
+
+    def run(self, target):
+        """
+        Runs tiling and pipelining scheduling on target Graph or FlowModule.
+        Annotates calculated tiling schedules onto matmul nodes.
+        """
+        if hasattr(target, "nodes"):
+            for node in target.nodes:
+                if "matmul" in node.op_type:
+                    if len(node.inputs) >= 2:
+                        M = node.inputs[0].shape[0] if len(node.inputs[0].shape) >= 1 else 1
+                        K = node.inputs[0].shape[1] if len(node.inputs[0].shape) >= 2 else 1
+                        N = node.inputs[1].shape[1] if len(node.inputs[1].shape) >= 2 else 1
+                        node.attributes["tiling_schedule"] = self.schedule(M, N, K)
+        return target
 
     def schedule(self, M: Union[int, SymExpr], N: Union[int, SymExpr], K: Union[int, SymExpr]) -> TilingSchedule:
         """

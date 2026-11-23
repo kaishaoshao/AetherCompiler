@@ -15,6 +15,7 @@ Key Architectural Pillars (IREE 核心优势):
 
 from typing import List, Dict, Any, Tuple, Optional
 from frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
+from compiler.pass_manager import register_pass
 
 class BufferBinding:
     """Represents a global memory buffer bound to a local kernel argument slot."""
@@ -74,6 +75,13 @@ class DispatchRegion:
         return f"DispatchRegion #{self.dispatch_id} -> Executable @{self.executable.name} grid={self.grid} [{bindings_str}]"
 
 
+@register_pass(
+    name="flow-dispatch",
+    description="IREE Flow workgroup dispatch formation, grid calculation and buffer binding clustering",
+    dialect_stage="graph -> flow",
+    aliases=["dispatch"],
+    options_schema={"num_npu_cores": 4}
+)
 class FlowDispatchPass:
     """
     Transforms a DAG of OpNodes into clustered IREE Flow Dispatch Regions.

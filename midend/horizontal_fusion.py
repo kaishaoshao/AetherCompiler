@@ -17,7 +17,15 @@ Core Architectural Innovations:
 from typing import Dict, List, Set, Tuple
 from collections import defaultdict
 from frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
+from compiler.pass_manager import register_pass
 
+@register_pass(
+    name="h-fusion",
+    description="Fuses sibling independent operations sharing the same input activation (e.g. QKV projection)",
+    dialect_stage="graph",
+    aliases=["horizontal-fusion", "qkv-fusion"],
+    options_schema={"min_siblings": 2}
+)
 class HorizontalFusionPass:
     def __init__(self, min_siblings: int = 2):
         self.min_siblings = min_siblings

@@ -12,7 +12,15 @@ Core Architectural Innovations:
 from typing import Dict, List, Tuple, Optional
 from frontend import Graph, Tensor, OpRegistry, OpTrait
 from ir.sym_int import SymbolicConstraintSolver
+from compiler.pass_manager import register_pass
 
+@register_pass(
+    name="memory-planning",
+    description="Dynamic first-fit memory planning with lifetime interval reuse & zero-copy view aliasing",
+    dialect_stage="graph -> memref",
+    aliases=["mem-plan", "mgp", "bufferize"],
+    options_schema={"alignment": 64}
+)
 class MemoryPlanningPass:
     def __init__(self, alignment: int = 64, solver: Optional[SymbolicConstraintSolver] = None):
         self.alignment = alignment

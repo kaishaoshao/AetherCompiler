@@ -7,7 +7,14 @@ do not contribute to any model outputs.
 
 from typing import Set
 from frontend import Graph, OpNode
+from compiler.pass_manager import register_pass
 
+@register_pass(
+    name="dce",
+    description="Reverse-reachability dead code elimination to prune unreachable nodes",
+    dialect_stage="graph",
+    aliases=["dead-code-elimination"]
+)
 class DeadCodeEliminationPass:
     """
     Reverse-reachability Dead Code Elimination Pass.
