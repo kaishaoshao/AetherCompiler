@@ -14,6 +14,18 @@ from .sym_int import (
     SymExpr, SymVar, SymConst, SymBinary, Constraint,
     SymbolicConstraintSolver, sym_var, sym_const
 )
+from .memory_space import (
+    MemorySpace,
+    MemoryTier,
+    MemoryHierarchy,
+    DataMoverType,
+    DataTransferDescriptor
+)
+from .target_desc import (
+    EngineKind,
+    ComputeEngine,
+    TargetArchitecture
+)
 
 __all__ = [
     "Buffer", "Stmt", "AllocBuffer", "FreeBuffer", "DmaTransfer", "DmaBarrier",
@@ -24,4 +36,6 @@ __all__ = [
     "lower_loop_ir_to_command_ir",
     "SymExpr", "SymVar", "SymConst", "SymBinary", "Constraint",
     "SymbolicConstraintSolver", "sym_var", "sym_const",
+    "MemorySpace", "MemoryTier", "MemoryHierarchy", "DataMoverType", "DataTransferDescriptor",
+    "EngineKind", "ComputeEngine", "TargetArchitecture"
 ]

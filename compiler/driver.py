@@ -141,13 +141,21 @@ class ZenNPUCompiler:
         freq_ghz: float = 1.0,
         print_after_all: bool = False,
         solver: Optional[SymbolicConstraintSolver] = None,
-        pipeline: Optional[Union[str, List[Any]]] = None
+        pipeline: Optional[Union[str, List[Any]]] = None,
+        target: Optional[Any] = None
     ):
-        self.sram_kb = sram_kb
+        self.target = target
+        if target is not None and hasattr(target, "memory_hierarchy"):
+            self.sram_bytes = target.memory_hierarchy.get_tier(target.memory_hierarchy.default_scratchpad).capacity_bytes
+            self.sram_kb = self.sram_bytes // 1024
+            self.freq_ghz = target.clock_frequency_ghz
+        else:
+            self.sram_kb = sram_kb
+            self.sram_bytes = sram_kb * 1024
+            self.freq_ghz = freq_ghz
+
         self.num_cores = num_cores
-        self.freq_ghz = freq_ghz
         self.print_after_all = print_after_all
-        self.sram_bytes = sram_kb * 1024
         self.solver = solver
         self.pipeline = pipeline or "const-fold,h-fusion,fusion,dce"
 
@@ -209,8 +217,8 @@ class ZenNPUCompiler:
         mem_planner = PassRegistry.create_pass("memory-planning", alignment=64, solver=active_solver)
         _, planned_bytes, _ = mem_planner.run(fused_graph)
 
-        # 3. Flow Dispatch Formation (IREE Flow Dialect)
-        flow_pass = PassRegistry.create_pass("flow-dispatch", num_npu_cores=self.num_cores)
+        # 3. Flow Dispatch Formation (IREE Flow Dialect with Heterogeneous Routing)
+        flow_pass = PassRegistry.create_pass("flow-dispatch", num_npu_cores=self.num_cores, target=self.target)
         executables, dispatch_regions = flow_pass.run(fused_graph)
         from midend.flow_dispatch import FlowModule
         flow_module = FlowModule(name=f"{graph.name}_flow", executables=executables, dispatch_regions=dispatch_regions)
