@@ -94,3 +94,32 @@ class Graph:
         for out in self.outputs:
             print(f"  [Output] {out}")
         print("==================================================================\n")
+
+    def to_mlir_text(self) -> str:
+        """Serializes Level 1 High-Level Graph into standard MLIR Textual format."""
+        lines = [
+            f"// ----- Dialect: Graph (Level 1: High-Level Mathematical Graph IR) -----",
+            f"module @{self.name} {{"
+        ]
+        param_sigs = []
+        for inp in self.inputs:
+            shape_str = "x".join(str(d) for d in inp.shape)
+            param_sigs.append(f"%{inp.name}: tensor<{shape_str}x{inp.dtype}>")
+
+        ret_types = []
+        for out in self.outputs:
+            shape_str = "x".join(str(d) for d in out.shape)
+            ret_types.append(f"tensor<{shape_str}x{out.dtype}>")
+
+        lines.append(f"  func.func @forward(\n    " + ",\n    ".join(param_sigs) + f"\n  ) -> ({', '.join(ret_types)}) {{")
+
+        for node in self.nodes:
+            inps = ", ".join([f"%{t.name}" for t in node.inputs])
+            outs = ", ".join([f"%{t.name}" for t in node.outputs])
+            inp_types = [f"tensor<{'x'.join(str(d) for d in t.shape)}x{t.dtype}>" for t in node.inputs]
+            out_types = [f"tensor<{'x'.join(str(d) for d in t.shape)}x{t.dtype}>" for t in node.outputs]
+            lines.append(f'    {outs} = "graph.{node.op_type}"({inps}) : ({", ".join(inp_types)}) -> ({", ".join(out_types)})')
+
+        lines.append(f"    return {', '.join([f'%{t.name}' for t in self.outputs])}")
+        lines.append("  }\n}")
+        return "\n".join(lines)

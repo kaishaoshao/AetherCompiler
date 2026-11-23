@@ -130,6 +130,17 @@ class CommandModule:
             print(f"  ... ({len(self.commands) - 25} more hardware commands)")
         print("==========================================================================================\n")
 
+    def to_mlir_text(self) -> str:
+        """Serializes Level 3 Command & HAL Runtime IR into MLIR HAL/Stream Dialect format."""
+        lines = [
+            f"// ----- Dialect: HAL / Stream (Level 3: Hardware Command & Stream IR) -----",
+            f"module @{self.name} attributes {{dram_size = {self.dram_bytes}, sram_size = {self.sram_bytes}, num_cores = {self.num_cores}}} {{"
+        ]
+        for cmd in self.commands:
+            lines.append(f"  {cmd.to_ir()}")
+        lines.append("}")
+        return "\n".join(lines)
+
     def emit_c_code(self) -> str:
         lines: List[str] = []
         lines.append("// ============================================================================")

@@ -1,0 +1,232 @@
+"""
+Compiler Infrastructure: Unified End-to-End Compiler Driver (ZenNPUCompiler).
+
+Presents a cohesive, production-grade compiler entry point:
+- Configures target microarchitecture (Cores, Scratchpad SRAM, Clock Frequency)
+- Manages multi-level progressive dialect lowering pipeline via PassManager
+- Emits C ABI driver and freestanding RISC-V 64-bit Custom-0 assembly
+- Provides unified simulation, profiling, and MLIR-style diagnostic export
+"""
+
+import os
+import subprocess
+from typing import Dict, List, Tuple, Optional, Any
+from frontend import Graph, Tensor
+from midend import (
+    ConstantFoldingAndPrepackPass,
+    HorizontalFusionPass,
+    OperatorFusionPass,
+    MemoryPlanningPass,
+    FlowDispatchPass,
+    FlowModule,
+    TilingAndPipelinePass
+)
+from backend import RiscvNpuCodeGenerator
+from runtime import (
+    VirtualNPUSimulator,
+    TimelineSemaphore,
+    CommandBuffer,
+    AsyncDeviceQueue,
+    NPUHardwareProfile,
+    PerformanceMetrics,
+    ComparisonReport,
+    NPUPerformanceProfiler
+)
+from ir import LoopModule, CommandModule
+from .pass_manager import PassManager
+
+class CompiledArtifact:
+    """
+    Self-contained executable artifact produced by ZenNPUCompiler.
+    Encapsulates all abstraction levels: Fused Graph, Flow, TIR, HAL, and Machine Assembly.
+    """
+    def __init__(
+        self,
+        name: str,
+        original_graph: Graph,
+        fused_graph: Graph,
+        naive_bytes: int,
+        planned_bytes: int,
+        flow_ir: Optional[FlowModule],
+        loop_ir: LoopModule,
+        command_ir: CommandModule,
+        c_source: str,
+        asm_source: str,
+        profiler: NPUPerformanceProfiler,
+        num_cores: int = 4
+    ):
+        self.name = name
+        self.original_graph = original_graph
+        self.fused_graph = fused_graph
+        self.naive_bytes = naive_bytes
+        self.planned_bytes = planned_bytes
+        self.flow_ir = flow_ir
+        self.loop_ir = loop_ir
+        self.command_ir = command_ir
+        self.c_source = c_source
+        self.asm_source = asm_source
+        self.profiler = profiler
+        self.num_cores = num_cores
+
+    def save_c(self, path: str):
+        """Writes freestanding C driver source to disk."""
+        with open(path, "w") as f:
+            f.write(self.c_source)
+
+    def save_asm(self, path: str):
+        """Writes RV64 assembly to disk."""
+        with open(path, "w") as f:
+            f.write(self.asm_source)
+
+    def to_mlir_text(self, level: Any = 1) -> str:
+        """
+        Exports MLIR dialect textual representation across the 4-level lowering ladder:
+        - level=1 or 'graph'   : Level 1 High-Level Graph Dialect (graph.*)
+        - level=1.5 or 'flow'  : Level 1.5 IREE Flow Workgroup Dialect (flow.*)
+        - level=2 or 'tir'     : Level 2 Loop & Scratchpad Buffer Dialect (tir.* / memref.*)
+        - level=3 or 'hal'     : Level 3 Hardware Command & HAL Runtime Dialect (hal.*)
+        - level=4 or 'rv64'    : Level 4 Machine Assembly (rv64.*)
+        """
+        if level in (1, "graph"):
+            return self.fused_graph.to_mlir_text()
+        elif level in (1.5, "flow"):
+            return self.flow_ir.to_mlir_text() if self.flow_ir else "// Flow IR not constructed"
+        elif level in (2, "tir"):
+            return self.loop_ir.to_mlir_text()
+        elif level in (3, "hal"):
+            return self.command_ir.to_mlir_text()
+        elif level in (4, "rv64"):
+            return self.asm_source
+        else:
+            raise ValueError(f"Invalid MLIR level: {level}. Choose 'graph', 'flow', 'tir', 'hal', or 'rv64'.")
+
+    def profile(self) -> ComparisonReport:
+        """Runs hardware-accurate microarchitecture profiling against baseline."""
+        return self.profiler.compare(
+            model_name=self.name,
+            baseline_graph=self.original_graph,
+            naive_memory_bytes=self.naive_bytes,
+            fused_graph=self.fused_graph,
+            planned_memory_bytes=self.planned_bytes,
+            num_cores=self.num_cores
+        )
+
+    def execute_simulation(self, inputs: Dict[str, Any]) -> List[Any]:
+        """Runs bit-exact execution on Virtual NPU Simulator."""
+        sim = VirtualNPUSimulator(self.planned_bytes)
+        for inp in self.fused_graph.inputs:
+            if inp.name in inputs:
+                sim.write_tensor(inp, inputs[inp.name])
+        sim.execute_graph(self.fused_graph)
+        return [sim.read_tensor(out) for out in self.fused_graph.outputs]
+
+
+class ZenNPUCompiler:
+    """
+    Unified AI Graph Compiler Driver for Zen-NPU.
+    Absorbs the architectural pillars of Mojo/MAX, IREE, and TVM.
+    """
+    def __init__(
+        self,
+        sram_kb: int = 16,
+        num_cores: int = 4,
+        freq_ghz: float = 1.0,
+        print_after_all: bool = False
+    ):
+        self.sram_kb = sram_kb
+        self.num_cores = num_cores
+        self.freq_ghz = freq_ghz
+        self.print_after_all = print_after_all
+        self.sram_bytes = sram_kb * 1024
+
+        self.hw_profile = NPUHardwareProfile(
+            frequency_ghz=freq_ghz,
+            num_cores=num_cores,
+            sram_capacity_bytes=self.sram_bytes
+        )
+        self.profiler = NPUPerformanceProfiler(self.hw_profile)
+        self.codegen = RiscvNpuCodeGenerator(sram_bytes=self.sram_bytes, num_cores=num_cores)
+
+    def create_optimization_pipeline(self) -> PassManager:
+        """Constructs the standard progressive optimization pipeline."""
+        pm = PassManager(name="ZenNPU_StandardPipeline", print_after_all=self.print_after_all)
+        pm.add_pass(ConstantFoldingAndPrepackPass(sram_capacity_bytes=self.sram_bytes))
+        pm.add_pass(HorizontalFusionPass())
+        pm.add_pass(OperatorFusionPass())
+        return pm
+
+    def compile(self, graph: Graph) -> CompiledArtifact:
+        """
+        Compiles high-level computation graph down to machine code artifact.
+        Progressive Lowering:
+        Level 1: High-Level Graph IR (frontend.Graph)
+           ↓ PassManager (Prepack -> H-Fusion -> V-Fusion -> MGP)
+        Level 2: Loop & Buffer IR (ir.LoopModule)
+           ↓ lower_to_command_ir
+        Level 3: Command & HAL Runtime IR (ir.CommandModule)
+           ↓ Codegen
+        Level 4: RISC-V 64-bit Assembly & Freestanding C
+        """
+        # Calculate naive baseline memory requirement
+        offset = 0
+        for t in graph.get_all_tensors():
+            t.allocated_offset = offset
+            offset = (offset + t.size_in_bytes + 63) & ~63
+        naive_bytes = offset
+
+        # 1. Run Mid-End Optimization Pipeline
+        pipeline = self.create_optimization_pipeline()
+        fused_graph = pipeline.run(graph)
+
+        # 2. Dynamic Memory Planning (MAX MGP)
+        mem_planner = MemoryPlanningPass(alignment=64)
+        _, planned_bytes, _ = mem_planner.run(fused_graph)
+
+        # 3. Flow Dispatch Formation (IREE Flow Dialect)
+        flow_pass = FlowDispatchPass(num_npu_cores=self.num_cores)
+        executables, dispatch_regions = flow_pass.run(fused_graph)
+        flow_module = FlowModule(name=f"{graph.name}_flow", executables=executables, dispatch_regions=dispatch_regions)
+
+        # 4. Progressive Lowering to Loop IR (TIR)
+        loop_ir_module = self.codegen.lower_to_loop_ir(fused_graph, planned_bytes)
+
+        # 5. Progressive Lowering to Command IR (HAL / Stream)
+        command_ir_module = self.codegen.lower_to_command_ir(loop_ir_module, planned_bytes)
+
+        # 6. Emit Machine Code (Freestanding C & RV64 Assembly)
+        c_code = self.codegen.generate(fused_graph, planned_bytes)
+
+        # Assemble RV64 assembly via clang if available
+        asm_code = ""
+        try:
+            clang_cmd = [
+                "clang",
+                "--target=riscv64-linux-gnu",
+                "-march=rv64gc",
+                "-mabi=lp64d",
+                "-O2",
+                "-nostdinc",
+                "-S",
+                "-x", "c",
+                "-",
+                "-o", "-"
+            ]
+            res = subprocess.run(clang_cmd, input=c_code, text=True, capture_output=True, check=True)
+            asm_code = res.stdout
+        except Exception:
+            asm_code = "// Clang riscv64 target compiler not present on host."
+
+        return CompiledArtifact(
+            name=graph.name,
+            original_graph=graph,
+            fused_graph=fused_graph,
+            naive_bytes=naive_bytes,
+            planned_bytes=planned_bytes,
+            flow_ir=flow_module,
+            loop_ir=loop_ir_module,
+            command_ir=command_ir_module,
+            c_source=c_code,
+            asm_source=asm_code,
+            profiler=self.profiler,
+            num_cores=self.num_cores
+        )

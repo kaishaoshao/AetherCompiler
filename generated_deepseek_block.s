@@ -1,7 +1,7 @@
 	.text
 	.attribute	4, 16
 	.attribute	5, "rv64i2p0_m2p0_a2p0_f2p0_d2p0_c2p0"
-	.file	"generated_deepseek_block.c"
+	.file	"-"
 	.section	.sdata,"aw",@progbits
 	.p2align	2                               # -- Begin function run_model
 .LCPI0_0:

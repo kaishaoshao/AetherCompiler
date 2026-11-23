@@ -136,3 +136,39 @@ class FlowDispatchPass:
             dispatch_regions.append(region)
 
         return executables, dispatch_regions
+
+
+class FlowModule:
+    """Encapsulates IREE Flow Dialect level representation."""
+    def __init__(self, name: str, executables: List[FlowExecutable], dispatch_regions: List[DispatchRegion]):
+        self.name = name
+        self.executables = executables
+        self.dispatch_regions = dispatch_regions
+
+    def to_mlir_text(self) -> str:
+        lines = [
+            f"// ----- Dialect: Flow (Level 1.5: Flow Workgroup & Dispatch Executable IR) -----",
+            f"module @{self.name} attributes {{flow.version = 1}} {{"
+        ]
+        for ex in self.executables:
+            lines.append(f"  flow.executable @{ex.name} attributes {{grid = {ex.grid_dims}}} {{")
+            inps = ", ".join([f"%arg{i}" for i in range(len(ex.entry_node.inputs))])
+            outs = ", ".join([f"%out{i}" for i in range(len(ex.entry_node.outputs))])
+            lines.append(f"    flow.dispatch.workgroup({inps}) -> ({outs}) {{")
+            lines.append(f"      // Workgroup execution: {ex.entry_node.op_type}")
+            lines.append(f"    }}")
+            lines.append(f"  }}")
+
+        lines.append(f"  func.func @run_flow() {{")
+        for region in self.dispatch_regions:
+            slots = ", ".join([f"%dev_{b.tensor.name}" for b in region.bindings])
+            lines.append(f"    flow.dispatch @{region.executable.name}::@entry{region.grid}({slots})")
+        lines.append(f"  }}")
+        lines.append("}")
+        return "\n".join(lines)
+
+    def print_ir(self):
+        print(f"==================== Level 1.5: Flow Dialect [{self.name}] ====================")
+        for line in self.to_mlir_text().split("\n")[:25]:
+            print(f"  {line}")
+        print("=================================================================================\n")

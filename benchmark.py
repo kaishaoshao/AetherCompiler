@@ -40,14 +40,7 @@ from extensions import (
     build_triton_fused_gelu,
     build_tilelang_gemm_relu
 )
-from midend import (
-    OperatorFusionPass,
-    MemoryPlanningPass,
-    FlowDispatchPass,
-    TilingAndPipelinePass,
-    ConstantFoldingAndPrepackPass,
-    HorizontalFusionPass
-)
+from compiler import ZenNPUCompiler, CompiledArtifact
 from runtime import (
     VirtualNPUSimulator,
     flatten,
@@ -97,13 +90,12 @@ def assign_naive_memory_offsets(graph: Graph, alignment: int = 64) -> int:
 def run_benchmark_for_model(
     model_name: str,
     builder_fn,
-    profiler: NPUPerformanceProfiler,
-    num_cores: int = 4
+    compiler: ZenNPUCompiler
 ) -> Tuple[ComparisonReport, float, float]:
     """
     Runs full comparative benchmark for a given model:
     1. Builds high-level baseline graph.
-    2. Runs compiler passes to produce optimized graph.
+    2. Runs compiler passes via ZenNPUCompiler to produce optimized artifact.
     3. Runs NPU microarchitecture profiler for both.
     4. Executes both graphs on VirtualNPUSimulator with identical inputs.
     5. Verifies bit-exact numerical equality.
@@ -114,47 +106,31 @@ def run_benchmark_for_model(
     baseline_graph = res_base[0] if isinstance(res_base, tuple) else res_base
     naive_bytes = assign_naive_memory_offsets(baseline_graph)
 
-    # 2. Build and Optimize Pipeline Graph
+    # 2. Build and Optimize Pipeline Graph via ZenNPUCompiler Driver
     res_opt = builder_fn()
     opt_graph = res_opt[0] if isinstance(res_opt, tuple) else res_opt
-
-    # Pass 1: Constant Folding & Weight Pre-packing
-    prepack_pass = ConstantFoldingAndPrepackPass(sram_capacity_bytes=16 * 1024)
-    prepacked_graph, _ = prepack_pass.run(opt_graph)
-
-    # Pass 2: Horizontal Sibling Fusion (QKV Projection Fusion)
-    h_fusion_pass = HorizontalFusionPass()
-    h_fused_graph = h_fusion_pass.run(prepacked_graph)
-
-    # Pass 3: Structural Pattern Fusion (FlashAttention, SwiGLU, GeGLU, Residual+RMSNorm)
-    fusion_pass = OperatorFusionPass()
-    fused_graph = fusion_pass.run(h_fused_graph)
-
-    # Pass 4: Dynamic Memory Planning (MAX MGP)
-    mem_planner = MemoryPlanningPass(alignment=64)
-    _, planned_bytes, _ = mem_planner.run(fused_graph)
-
+    artifact = compiler.compile(opt_graph)
     compile_time_ms = (time.perf_counter() - t0) * 1000.0
 
     # 3. Hardware Profiling
-    report = profiler.compare(
+    report = compiler.profiler.compare(
         model_name=model_name,
         baseline_graph=baseline_graph,
-        naive_memory_bytes=naive_bytes,
-        fused_graph=fused_graph,
-        planned_memory_bytes=planned_bytes,
-        num_cores=num_cores
+        naive_memory_bytes=artifact.naive_bytes,
+        fused_graph=artifact.fused_graph,
+        planned_memory_bytes=artifact.planned_bytes,
+        num_cores=compiler.num_cores
     )
 
     # 4. Bit-Exact Numerical Verification in Simulator
     t_sim_0 = time.perf_counter()
     random.seed(42)
 
-    sim_base = VirtualNPUSimulator(naive_bytes)
-    sim_opt = VirtualNPUSimulator(planned_bytes)
+    sim_base = VirtualNPUSimulator(artifact.naive_bytes)
+    sim_opt = VirtualNPUSimulator(artifact.planned_bytes)
 
     # Generate identical random inputs
-    for inp_base, inp_opt in zip(baseline_graph.inputs, fused_graph.inputs):
+    for inp_base, inp_opt in zip(baseline_graph.inputs, artifact.fused_graph.inputs):
         data = []
         if len(inp_base.shape) == 1:
             data = [random.uniform(-0.1, 0.1) for _ in range(inp_base.shape[0])]
@@ -165,13 +141,13 @@ def run_benchmark_for_model(
 
     # Execute both graphs
     sim_base.execute_graph(baseline_graph)
-    sim_opt.execute_graph(fused_graph)
+    sim_opt.execute_graph(artifact.fused_graph)
 
     sim_time_ms = (time.perf_counter() - t_sim_0) * 1000.0
 
     # Compare outputs bit-exactly
     out_base = sim_base.read_tensor(baseline_graph.outputs[0])
-    out_opt = sim_opt.read_tensor(fused_graph.outputs[0])
+    out_opt = sim_opt.read_tensor(artifact.fused_graph.outputs[0])
 
     flat_base = flatten(out_base)
     flat_opt = flatten(out_opt)
@@ -263,12 +239,12 @@ def main():
     parser.add_argument("--json-out", type=str, default="benchmark_results.json", help="Path to save JSON benchmark output")
     args = parser.parse_args()
 
-    hw_profile = NPUHardwareProfile(
-        frequency_ghz=1.0,
+    compiler = ZenNPUCompiler(
+        sram_kb=args.sram_kb,
         num_cores=args.num_cores,
-        sram_capacity_bytes=args.sram_kb * 1024
+        freq_ghz=1.0,
+        print_after_all=False
     )
-    profiler = NPUPerformanceProfiler(hw_profile)
 
     models_to_test = [
         ("MLP (Dense)", lambda: build_mlp_graph(batch_size=32, in_dim=64, hidden_dim=64, out_dim=32)),
@@ -280,7 +256,7 @@ def main():
     ]
 
     print(f"Running Zen-NPU Optimization Benchmarks across {len(models_to_test)} models...")
-    print(f"Target Hardware: {hw_profile.num_cores} Cores @ {hw_profile.frequency_ghz:.1f} GHz, {args.sram_kb}KB SRAM per core, {hw_profile.peak_tflops:.2f} Peak TFLOPs")
+    print(f"Target Hardware: {compiler.num_cores} Cores @ {compiler.freq_ghz:.1f} GHz, {args.sram_kb}KB SRAM per core, {compiler.hw_profile.peak_tflops:.2f} Peak TFLOPs")
 
     benchmark_results = []
     json_records = []
@@ -288,7 +264,7 @@ def main():
     for name, builder in models_to_test:
         sys.stdout.write(f"  -> Benchmarking {name:<24} ... ")
         sys.stdout.flush()
-        report, compile_ms, max_diff = run_benchmark_for_model(name, builder, profiler, num_cores=args.num_cores)
+        report, compile_ms, max_diff = run_benchmark_for_model(name, builder, compiler)
         benchmark_results.append((report, compile_ms, max_diff))
         sys.stdout.write(f"DONE (Speedup: {report.speedup_ratio:.2f}x, Saved Mem: {report.memory_footprint_savings_pct:.1f}%)\n")
 

@@ -35,15 +35,7 @@ from extensions import (
     build_triton_fused_gelu,
     build_tilelang_gemm_relu
 )
-from midend import (
-    OperatorFusionPass,
-    MemoryPlanningPass,
-    FlowDispatchPass,
-    TilingAndPipelinePass,
-    ConstantFoldingAndPrepackPass,
-    HorizontalFusionPass
-)
-from backend import RiscvNpuCodeGenerator
+from compiler import ZenNPUCompiler
 from runtime import VirtualNPUSimulator, TimelineSemaphore, CommandBuffer, AsyncDeviceQueue
 
 def compile_and_verify_model(model_name: str, graph: Graph, input_tensor: Tensor, sram_kb: int = 16, num_cores: int = 4):
@@ -51,138 +43,80 @@ def compile_and_verify_model(model_name: str, graph: Graph, input_tensor: Tensor
     print(f" COMPILING MODEL: {model_name.upper()} (Target: {num_cores} RISC-V Cores, {sram_kb}KB SRAM)")
     print("#" * 80)
 
-    # 1. Level 1: Original High-Level Graph
-    graph.print_graph(f"1. Original High-Level Graph [{model_name}]")
+    # 1. Unified End-to-End Compiler Driver
+    compiler = ZenNPUCompiler(sram_kb=sram_kb, num_cores=num_cores, freq_ghz=1.0, print_after_all=False)
+    artifact = compiler.compile(graph)
 
-    # 2. Middle-End Passes:
-    # Pass 1: Constant Folding & Weight Pre-packing
-    prepack_pass = ConstantFoldingAndPrepackPass(sram_capacity_bytes=sram_kb * 1024)
-    prepacked_graph, prepack_meta = prepack_pass.run(graph)
+    # 2. Multi-Level Progressive Dialect Text Previews
+    print(f"\n--- [Level 1: Graph Dialect (graph.*)] ---")
+    for line in artifact.to_mlir_text('graph').split("\n")[:10]:
+        print(f"  {line}")
 
-    # Pass 2: Horizontal Sibling Fusion (QKV Projection Fusion)
-    h_fusion_pass = HorizontalFusionPass()
-    h_fused_graph = h_fusion_pass.run(prepacked_graph)
+    print(f"\n--- [Level 1.5: Flow Dialect (flow.*)] ---")
+    for line in artifact.to_mlir_text('flow').split("\n")[:10]:
+        print(f"  {line}")
 
-    # Pass 3: Structural Operator Fusion (MAX MAP, FlashAttention, SwiGLU, GeGLU, FusedAddRMSNorm)
-    fusion_pass = OperatorFusionPass()
-    fused_graph = fusion_pass.run(h_fused_graph)
-    fused_graph.print_graph(f"2. Fused Graph (After Full Fusion Passes)")
-    print(f"  [Fusion Stats] Reduced node count from {len(graph.nodes)} -> {len(fused_graph.nodes)} ops.")
+    print(f"\n--- [Level 2: TIR Dialect (tir.* / memref.*)] ---")
+    for line in artifact.to_mlir_text('tir').split("\n")[:10]:
+        print(f"  {line}")
 
-    # 3. Middle-End Pass 2: Dynamic Memory Planning with Zero-Copy View Aliasing (MAX MGP)
-    mem_planner = MemoryPlanningPass(alignment=64)
-    naive_bytes, planned_bytes, liveness = mem_planner.run(fused_graph)
-    savings = (1.0 - planned_bytes / naive_bytes) * 100.0
+    print(f"\n--- [Level 3: HAL Dialect (hal.*)] ---")
+    for line in artifact.to_mlir_text('hal').split("\n")[:10]:
+        print(f"  {line}")
 
-    print(f"\n3. Global Memory Planning (MAX MGP with Zero-Copy View Aliasing):")
-    print(f"  - Naive Dedicated Memory Required : {naive_bytes:,} Bytes")
-    print(f"  - Optimized Reused Memory Footprint: {planned_bytes:,} Bytes")
-    print(f"  - Physical Memory Footprint Savings: {savings:.1f}%\n")
-    print("  Tensor Offset Allocation Map (in Global HBM/DRAM):")
-    for t in fused_graph.get_all_tensors()[:6]:
-        start, end = liveness.get(t.name, (0, 0))
-        layout_info = f"Strides={t.layout.strides}" if t.layout else "Dense"
-        print(f"    * {t.name:<26}: Offset=0x{t.allocated_offset:06X} | Size={t.size_in_bytes:>7,} B | {layout_info}")
-    if len(fused_graph.get_all_tensors()) > 6:
-        print(f"    ... ({len(fused_graph.get_all_tensors()) - 6} more tensors planned)")
-
-    # 4. Middle-End Pass 3: IREE Flow Dispatch Formation & Executables
-    print(f"\n4. IREE Flow Executable Bundling & Dispatch Regions:")
-    flow_pass = FlowDispatchPass(num_npu_cores=num_cores)
-    executables, dispatch_regions = flow_pass.run(fused_graph)
-    print(f"  - Formed {len(executables)} isolated Flow Executables and {len(dispatch_regions)} Dispatch Regions.")
-    for region in dispatch_regions[:2]:
-        print(f"    -> {region}")
-
-    # 5. Middle-End Pass 4: TVM TensorIR SRAM Tiling & 3-Phase Software Pipelining
-    print(f"\n5. Scratchpad SRAM Tiling & Ping-Pong Schedule (TVM TensorIR):")
-    tiler = TilingAndPipelinePass(sram_capacity_bytes=sram_kb * 1024)
-    for node in fused_graph.nodes:
-        if node.op_type in ("matmul", "fused_matmul_add_relu"):
-            M, K = node.inputs[0].shape
-            _, N = node.inputs[1].shape
-            sched = tiler.schedule(M, N, K)
-            print(f"  [Tiling] Node '{node.name}': Problem [{M}x{K}]x[{K}x{N}] -> BM={sched.BM}, BN={sched.BN}, BK={sched.BK} (SRAM: {sched.sram_bytes_used} B / {sram_kb*1024} B)")
-
-    # 6. Progressive Multi-Level IR Lowering Pipeline
-    print(f"\n6. Progressive Multi-Level IR Lowering Pipeline:")
-    codegen = RiscvNpuCodeGenerator(sram_bytes=sram_kb * 1024, num_cores=num_cores)
-
-    # Level 1 -> Level 2: Loop & Buffer IR (TIR)
-    loop_ir_module = codegen.lower_to_loop_ir(fused_graph, planned_bytes)
-    loop_ir_module.print_ir()
-
-    # Level 2 -> Level 3: Command & HAL Runtime IR
-    command_ir_module = codegen.lower_to_command_ir(loop_ir_module, planned_bytes)
-    command_ir_module.print_ir()
-
-    # Level 3 -> Level 4: Machine Assembly & C Codegen
-    c_code = codegen.generate(fused_graph, planned_bytes)
-
+    # 3. Machine Code Emission
     base_dir = os.path.dirname(os.path.abspath(__file__))
     c_path = os.path.join(base_dir, f"generated_{model_name}.c")
     asm_path = os.path.join(base_dir, f"generated_{model_name}.s")
 
-    with open(c_path, "w") as f:
-        f.write(c_code)
-    print(f"  [Code Emission] Wrote C driver code to: {c_path}")
+    artifact.save_c(c_path)
+    artifact.save_asm(asm_path)
+    print(f"\n  [Code Emission] Freestanding C written to: {c_path}")
+    print(f"  [Code Emission] RV64 Assembly written to: {asm_path}")
 
-    # Test invoking clang to compile real RISC-V 64-bit assembly
-    try:
-        cmd = ["clang", "--target=riscv64-linux-gnu", "-nostdinc", "-S", "-O2", c_path, "-o", asm_path]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode == 0:
-            print(f"  [LLVM RISC-V] Successfully assembled RV64 Target code to: {asm_path}")
-            with open(asm_path) as f:
-                asm_lines = [l.strip() for l in f.readlines() if ".insn" in l]
-            print(f"  [LLVM RV64 Custom-0 Instructions emitted: {len(asm_lines)} calls]")
-            for sample in asm_lines[:3]:
-                print(f"    -> {sample}")
-        else:
-            print(f"  [LLVM Info] Clang RISCV note: {res.stderr.strip()[:100]}")
-    except Exception as e:
-        print(f"  [LLVM Note] Clang invocation skipped: {e}")
+    asm_lines = [l.strip() for l in artifact.asm_source.split("\n") if ".insn" in l]
+    if asm_lines:
+        print(f"  [LLVM RV64 Custom-0 Instructions emitted: {len(asm_lines)} calls]")
+        for sample in asm_lines[:3]:
+            print(f"    -> {sample}")
 
-    # 7. Runtime: IREE HAL Command Buffer Recording & Timeline Semaphore Execution
-    print(f"\n7. IREE HAL Asynchronous Command Buffer & Timeline Semaphore Execution:")
+    # 4. Runtime: IREE HAL Command Buffer Recording & Timeline Semaphore Execution
+    print(f"\n4. IREE HAL Asynchronous Command Buffer & Timeline Semaphore Execution:")
     cmd_buffer = CommandBuffer(f"{model_name}_cmd_buf")
     timeline = TimelineSemaphore("npu_timeline", initial_value=0)
 
-    # Record dispatches into command buffer
-    for idx, region in enumerate(dispatch_regions):
-        slot_map = {b.slot: b.tensor.allocated_offset for b in region.bindings}
-        cmd_buffer.bind_buffers(slot_map)
-        cmd_buffer.dispatch(region.executable.name, region.grid)
-        # Advance timeline semaphore on each dispatch completion
-        cmd_buffer.execution_barrier(
-            wait_semaphore=timeline,
-            wait_value=idx,
-            signal_semaphore=timeline,
-            signal_value=idx + 1
-        )
-    cmd_buffer.print_buffer()
+    if artifact.flow_ir:
+        for idx, region in enumerate(artifact.flow_ir.dispatch_regions):
+            slot_map = {b.slot: b.tensor.allocated_offset for b in region.bindings}
+            cmd_buffer.bind_buffers(slot_map)
+            cmd_buffer.dispatch(region.executable.name, region.grid)
+            cmd_buffer.execution_barrier(
+                wait_semaphore=timeline,
+                wait_value=idx,
+                signal_semaphore=timeline,
+                signal_value=idx + 1
+            )
+        cmd_buffer.print_buffer()
 
-    # Submit to asynchronous execution queue
-    device_queue = AsyncDeviceQueue("npu_main_queue")
-    device_queue.submit(cmd_buffer, signal_on_complete=len(dispatch_regions))
-    print(f"  [Asynchronous Execution] Device queue advanced timeline to: {device_queue.timeline.current_value} (All Dispatches Finished!)")
+        device_queue = AsyncDeviceQueue("npu_main_queue")
+        device_queue.submit(cmd_buffer, signal_on_complete=len(artifact.flow_ir.dispatch_regions))
+        print(f"  [Asynchronous Execution] Device queue advanced timeline to: {device_queue.timeline.current_value} (All Dispatches Finished!)")
 
-    # 8. Virtual NPU Numerical Verification
-    print(f"\n8. Virtual NPU Bit-Exact Numerical Verification:")
+    # 5. Virtual NPU Bit-Exact Numerical Verification
+    print(f"\n5. Virtual NPU Bit-Exact Numerical Verification:")
     random.seed(42)
-    sim = VirtualNPUSimulator(planned_bytes)
-
-    for inp in fused_graph.inputs:
+    inputs_data = {}
+    for inp in artifact.fused_graph.inputs:
         data = []
         if len(inp.shape) == 1:
             data = [random.uniform(-0.1, 0.1) for _ in range(inp.shape[0])]
         elif len(inp.shape) == 2:
             data = [[random.uniform(-0.1, 0.1) for _ in range(inp.shape[1])] for _ in range(inp.shape[0])]
-        sim.write_tensor(inp, data)
+        inputs_data[inp.name] = data
 
-    sim.execute_graph(fused_graph)
-    out_tensor = fused_graph.outputs[0]
-    out_result = sim.read_tensor(out_tensor)
+    outputs = artifact.execute_simulation(inputs_data)
+    out_tensor = artifact.fused_graph.outputs[0]
+    out_result = outputs[0]
 
     print(f"  Final Output Tensor: '{out_tensor.name}', Shape: {out_tensor.shape}")
     first_val = out_result[0][0] if isinstance(out_result[0], list) else out_result[0]

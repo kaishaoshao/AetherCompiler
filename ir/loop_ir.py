@@ -169,3 +169,17 @@ class LoopModule:
             if len(lines) > 25:
                 print(f"  ... ({len(lines) - 25} more statements in function)")
         print("========================================================================================\n")
+
+    def to_mlir_text(self) -> str:
+        """Serializes Level 2 Loop & Buffer IR into MLIR TIR Dialect format."""
+        lines = [
+            f"// ----- Dialect: TIR (Level 2: Loop & Scratchpad Buffer IR) -----",
+            f"module @{self.name} {{"
+        ]
+        for b in self.global_buffers:
+            shape_str = "x".join(str(d) for d in b.shape)
+            lines.append(f"  memref.global @{b.name} : memref<{shape_str}x{b.dtype}>, offset={b.offset}")
+        for fn in self.functions:
+            lines.append(f"  {fn.to_string()}")
+        lines.append("}")
+        return "\n".join(lines)
