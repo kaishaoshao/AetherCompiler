@@ -32,13 +32,14 @@ from runtime import (
     ComparisonReport,
     NPUPerformanceProfiler
 )
-from ir import LoopModule, CommandModule
+from ir import LoopModule, CommandModule, SymbolicConstraintSolver
 from .pass_manager import PassManager
 
 class CompiledArtifact:
     """
     Self-contained executable artifact produced by ZenNPUCompiler.
     Encapsulates all abstraction levels: Fused Graph, Flow, TIR, HAL, and Machine Assembly.
+    Supports dynamic SymInt execution via resolve_shapes!
     """
     def __init__(
         self,
@@ -53,7 +54,8 @@ class CompiledArtifact:
         c_source: str,
         asm_source: str,
         profiler: NPUPerformanceProfiler,
-        num_cores: int = 4
+        num_cores: int = 4,
+        solver: Optional[SymbolicConstraintSolver] = None
     ):
         self.name = name
         self.original_graph = original_graph
@@ -67,6 +69,7 @@ class CompiledArtifact:
         self.asm_source = asm_source
         self.profiler = profiler
         self.num_cores = num_cores
+        self.solver = solver
 
     def save_c(self, path: str):
         """Writes freestanding C driver source to disk."""
@@ -120,24 +123,42 @@ class CompiledArtifact:
         sim.execute_graph(self.fused_graph)
         return [sim.read_tensor(out) for out in self.fused_graph.outputs]
 
+    def execute_dynamic_simulation(self, inputs: Dict[str, Any], dynamic_bindings: Dict[str, int]) -> List[Any]:
+        """
+        Specializes dynamic graph with concrete runtime bindings (SymInt RMO -> Concrete MO)
+        and executes simulation.
+        """
+        concrete_graph = self.fused_graph.resolve_shapes(dynamic_bindings)
+        mem_planner = MemoryPlanningPass(alignment=64)
+        _, dynamic_planned_bytes, _ = mem_planner.run(concrete_graph)
+        sim = VirtualNPUSimulator(dynamic_planned_bytes)
+        for inp in concrete_graph.inputs:
+            if inp.name in inputs:
+                sim.write_tensor(inp, inputs[inp.name])
+        sim.execute_graph(concrete_graph)
+        return [sim.read_tensor(out) for out in concrete_graph.outputs]
+
 
 class ZenNPUCompiler:
     """
     Unified AI Graph Compiler Driver for Zen-NPU.
     Absorbs the architectural pillars of Mojo/MAX, IREE, and TVM.
+    Supports SymInt Dynamic Symbolic Shapes and Presburger Constraint Solving!
     """
     def __init__(
         self,
         sram_kb: int = 16,
         num_cores: int = 4,
         freq_ghz: float = 1.0,
-        print_after_all: bool = False
+        print_after_all: bool = False,
+        solver: Optional[SymbolicConstraintSolver] = None
     ):
         self.sram_kb = sram_kb
         self.num_cores = num_cores
         self.freq_ghz = freq_ghz
         self.print_after_all = print_after_all
         self.sram_bytes = sram_kb * 1024
+        self.solver = solver
 
         self.hw_profile = NPUHardwareProfile(
             frequency_ghz=freq_ghz,
@@ -155,18 +176,16 @@ class ZenNPUCompiler:
         pm.add_pass(OperatorFusionPass())
         return pm
 
-    def compile(self, graph: Graph) -> CompiledArtifact:
+    def compile(self, graph: Graph, solver: Optional[SymbolicConstraintSolver] = None) -> CompiledArtifact:
         """
         Compiles high-level computation graph down to machine code artifact.
-        Progressive Lowering:
-        Level 1: High-Level Graph IR (frontend.Graph)
-           ↓ PassManager (Prepack -> H-Fusion -> V-Fusion -> MGP)
-        Level 2: Loop & Buffer IR (ir.LoopModule)
-           ↓ lower_to_command_ir
-        Level 3: Command & HAL Runtime IR (ir.CommandModule)
-           ↓ Codegen
-        Level 4: RISC-V 64-bit Assembly & Freestanding C
+        Supports both concrete integer graphs and SymInt dynamic symbolic graphs!
         """
+        active_solver = solver or self.solver
+        if active_solver:
+            for t in graph.get_all_tensors():
+                t.set_solver(active_solver)
+
         # Calculate naive baseline memory requirement
         offset = 0
         for t in graph.get_all_tensors():
@@ -179,7 +198,7 @@ class ZenNPUCompiler:
         fused_graph = pipeline.run(graph)
 
         # 2. Dynamic Memory Planning (MAX MGP)
-        mem_planner = MemoryPlanningPass(alignment=64)
+        mem_planner = MemoryPlanningPass(alignment=64, solver=active_solver)
         _, planned_bytes, _ = mem_planner.run(fused_graph)
 
         # 3. Flow Dispatch Formation (IREE Flow Dialect)
@@ -228,5 +247,6 @@ class ZenNPUCompiler:
             c_source=c_code,
             asm_source=asm_code,
             profiler=self.profiler,
-            num_cores=self.num_cores
+            num_cores=self.num_cores,
+            solver=active_solver
         )

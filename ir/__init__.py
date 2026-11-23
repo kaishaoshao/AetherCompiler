@@ -10,6 +10,10 @@ from .lowering import (
     lower_graph_to_loop_ir,
     lower_loop_ir_to_command_ir
 )
+from .sym_int import (
+    SymExpr, SymVar, SymConst, SymBinary, Constraint,
+    SymbolicConstraintSolver, sym_var, sym_const
+)
 
 __all__ = [
     "Buffer", "Stmt", "AllocBuffer", "FreeBuffer", "DmaTransfer", "DmaBarrier",
@@ -18,4 +22,6 @@ __all__ = [
     "CmdKernelCall", "CmdRawCode", "CommandModule",
     "lower_graph_to_loop_ir",
     "lower_loop_ir_to_command_ir",
+    "SymExpr", "SymVar", "SymConst", "SymBinary", "Constraint",
+    "SymbolicConstraintSolver", "sym_var", "sym_const",
 ]

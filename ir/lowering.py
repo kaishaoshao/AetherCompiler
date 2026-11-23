@@ -10,9 +10,10 @@ Level 3: Command & Hardware Runtime IR (ir.command_ir.CommandModule)
 Level 4: Target Machine Code (RV64 Custom-0 Instructions)
 """
 
-from typing import List, Dict, Any, Tuple
-from frontend import Graph, Tensor, OpNode, OpRegistry, OpTrait
-from midend import TilingAndPipelinePass, FlowDispatchPass
+from typing import List, Dict, Any, Tuple, TYPE_CHECKING
+if TYPE_CHECKING:
+    from frontend import Graph, Tensor, OpNode
+
 from .loop_ir import (
     Buffer, Stmt, AllocBuffer, FreeBuffer, DmaTransfer, DmaBarrier,
     KernelCall, ForLoop, RawCodeStmt, LoopFunction, LoopModule
@@ -23,11 +24,13 @@ from .command_ir import (
 )
 
 def lower_graph_to_loop_ir(
-    graph: Graph,
+    graph: Any,
     dram_bytes: int,
     sram_bytes: int,
     num_cores: int = 4
 ) -> LoopModule:
+    from frontend import OpRegistry, OpTrait
+    from midend import TilingAndPipelinePass, FlowDispatchPass
     """
     Phase 1 Lowering:
     Converts High-Level Mathematical Graph IR -> Structured Loop & Buffer IR (Level 2).

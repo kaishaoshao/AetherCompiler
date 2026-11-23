@@ -9,12 +9,14 @@ Core Architectural Innovations:
    - Outputs directly alias input buffer offsets with transformed strided layouts.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from frontend import Graph, Tensor, OpRegistry, OpTrait
+from ir.sym_int import SymbolicConstraintSolver
 
 class MemoryPlanningPass:
-    def __init__(self, alignment: int = 64):
+    def __init__(self, alignment: int = 64, solver: Optional[SymbolicConstraintSolver] = None):
         self.alignment = alignment
+        self.solver = solver
 
     def run(self, graph: Graph) -> Tuple[int, int, Dict[str, Tuple[int, int]]]:
         """
@@ -24,6 +26,9 @@ class MemoryPlanningPass:
             liveness_map: Dict of tensor_name -> (live_start, live_end).
         """
         tensors = graph.get_all_tensors()
+        if self.solver:
+            for t in tensors:
+                t.set_solver(self.solver)
         live_start: Dict[str, int] = {}
         live_end: Dict[str, int] = {}
 
