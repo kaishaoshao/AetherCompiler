@@ -7,6 +7,9 @@ from typing import List, Dict, Set, Optional
 from .tensor import Tensor
 from .ops import OpNode
 
+# Node is an alias for OpNode in the frontend representation
+Node = OpNode
+
 class Graph:
     def __init__(self, name: str = "main"):
         self.name = name
