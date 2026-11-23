@@ -60,6 +60,12 @@ def silu(x: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
     node = OpNode("silu", [x], [out_tensor], name=name or out_name)
     return node, out_tensor
 
+def gelu(x: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
+    out_name = f"{name}_out" if name else f"gelu_out_{id(x)%100}"
+    out_tensor = Tensor(out_name, x.shape, x.dtype)
+    node = OpNode("gelu", [x], [out_tensor], name=name or out_name)
+    return node, out_tensor
+
 def mul(a: Tensor, b: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
     out_name = f"{name}_out" if name else f"mul_out_{id(a)%100}"
     out_tensor = Tensor(out_name, a.shape, a.dtype)

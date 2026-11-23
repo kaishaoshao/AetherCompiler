@@ -54,6 +54,10 @@ def _ref_silu(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A = inputs[0]
     return [[[v / (1.0 + math.exp(-v)) for v in row] for row in A]]
 
+def _ref_gelu(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
+    A = inputs[0]
+    return [[[0.5 * v * (1.0 + math.erf(v / 1.41421356)) for v in row] for row in A]]
+
 def _ref_mul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A, B = inputs[0], inputs[1]
     M, N = len(A), len(A[0])
@@ -156,6 +160,22 @@ def register_standard_ops():
         traits={OpTrait.ELEMENTWISE},
         infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
         eval_ref_fn=_ref_silu
+    ))
+
+    # GeLU
+    OpRegistry.register(OpDefinition(
+        name="gelu",
+        traits={OpTrait.ELEMENTWISE},
+        infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
+        eval_ref_fn=_ref_gelu,
+        emit_c_fn=lambda node, ctx: [
+            f"        float* in  = (float*)(dram_base + {node.inputs[0].allocated_offset});",
+            f"        float* out = (float*)(dram_base + {node.outputs[0].allocated_offset});",
+            f"        for (int idx = 0; idx < {node.inputs[0].num_elements}; ++idx) {{",
+            f"            float val = in[idx];",
+            f"            out[idx] = 0.5f * val * (1.0f + (float)erff(val / 1.41421356f));",
+            f"        }}"
+        ]
     ))
 
     # Mul

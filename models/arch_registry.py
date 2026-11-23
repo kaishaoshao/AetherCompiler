@@ -13,6 +13,7 @@ from .mlp import MLP, build_mlp_graph
 from .transformer import TransformerBlock, build_transformer_block_graph
 from .qwen import QwenDecoderLayer, build_qwen_layer_graph
 from .deepseek import DeepseekDecoderLayer, build_deepseek_layer_graph
+from .gemma import GemmaDecoderLayer, build_gemma_layer_graph
 from .weight_adapter import WeightAdapter
 
 class ArchRegistry:
@@ -39,6 +40,7 @@ ArchRegistry.register("mlp", MLP, build_mlp_graph)
 ArchRegistry.register("llama", TransformerBlock, build_transformer_block_graph)
 ArchRegistry.register("qwen", QwenDecoderLayer, build_qwen_layer_graph)
 ArchRegistry.register("deepseek", DeepseekDecoderLayer, build_deepseek_layer_graph)
+ArchRegistry.register("gemma", GemmaDecoderLayer, build_gemma_layer_graph)
 
 
 class AutoModelForCausalLM:
@@ -59,6 +61,8 @@ class AutoModelForCausalLM:
             return builder_fn(batch_size=seq_len * batch_size, in_dim=cfg.dim, hidden_dim=cfg.intermediate_dim, out_dim=cfg.dim)
         elif cfg.model_type == "llama":
             return builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, hidden_dim=cfg.intermediate_dim)
+        elif cfg.model_type == "gemma":
+            return builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, intermediate_dim=cfg.intermediate_dim)
         elif cfg.model_type == "qwen":
             return builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, intermediate_dim=cfg.intermediate_dim)
         elif cfg.model_type == "deepseek":

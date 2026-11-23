@@ -26,6 +26,7 @@ from models import (
     build_transformer_block_graph,
     build_qwen_layer_graph,
     build_deepseek_layer_graph,
+    build_gemma_layer_graph,
     AutoModelForCausalLM,
     WeightAdapter,
     ConfigShim
@@ -256,6 +257,12 @@ def main():
     # Model 5: Hybrid Custom Kernel Graph (Triton Fused GeLU + TileLang GEMM ReLU + Native RMSNorm)
     hybrid_graph, hybrid_x = build_hybrid_triton_tilelang_graph()
     compile_and_verify_model("hybrid_triton_tilelang", hybrid_graph, hybrid_x, sram_kb=16, num_cores=4)
+
+    # Model 6: Google Gemma Decoder Block (with GeGLU Gated Activation, RoPE, RMSNorm)
+    gemma_graph, gemma_x, gemma_cos, gemma_sin = build_gemma_layer_graph(
+        batch_size=1, seq_len=16, dim=64, num_heads=4, intermediate_dim=128
+    )
+    compile_and_verify_model("gemma_block", gemma_graph, gemma_x, sram_kb=16, num_cores=4)
 
     print("\n" + "=" * 80)
     print(" All Architectural Pillars Verified and Bit-Exact Validated on RV64 NPU!")

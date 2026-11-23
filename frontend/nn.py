@@ -112,6 +112,33 @@ class SwiGLU(Module):
         out = self.down_proj(graph, mul_out)
         return out
 
+class GeGLU(Module):
+    """
+    GeGLU Feed-Forward Network (used in Google Gemma):
+    GeGLU(x) = (GeLU(x @ W_gate) * (x @ W_up)) @ W_down
+    """
+    def __init__(self, dim: int, hidden_dim: int, name: str = "geglu"):
+        super().__init__(name)
+        self.gate_proj = Linear(dim, hidden_dim, bias=False, name=f"{name}_gate")
+        self.up_proj = Linear(dim, hidden_dim, bias=False, name=f"{name}_up")
+        self.down_proj = Linear(hidden_dim, dim, bias=False, name=f"{name}_down")
+        self.register_module("gate_proj", self.gate_proj)
+        self.register_module("up_proj", self.up_proj)
+        self.register_module("down_proj", self.down_proj)
+
+    def forward(self, graph: Graph, x: Tensor) -> Tensor:
+        gate_out = self.gate_proj(graph, x)
+        node_gelu, gelu_out = ops.gelu(gate_out, name=f"{self.name}_gelu")
+        graph.add_node(node_gelu)
+
+        up_out = self.up_proj(graph, x)
+
+        node_mul, mul_out = ops.mul(gelu_out, up_out, name=f"{self.name}_gating_mul")
+        graph.add_node(node_mul)
+
+        out = self.down_proj(graph, mul_out)
+        return out
+
 class MultiHeadSelfAttention(Module):
     """Multi-Head Self-Attention for Transformer decoder."""
     def __init__(self, dim: int, num_heads: int, name: str = "self_attn"):

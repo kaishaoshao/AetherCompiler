@@ -80,8 +80,22 @@ class DeepSeekWeightAdapter:
         return out
 
 
+class GemmaWeightAdapter:
+    @staticmethod
+    def convert(state_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Maps Gemma safetensors keys."""
+        out = {}
+        for k, v in state_dict.items():
+            clean_k = k
+            if clean_k.startswith("model."):
+                clean_k = clean_k[len("model."):]
+            out[clean_k] = v
+        return out
+
+
 ADAPTER_REGISTRY = {
     "llama": LlamaWeightAdapter,
     "qwen": QwenWeightAdapter,
     "deepseek": DeepSeekWeightAdapter,
+    "gemma": GemmaWeightAdapter,
 }

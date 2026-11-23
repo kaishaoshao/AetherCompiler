@@ -77,6 +77,15 @@ class ConfigShim:
                 num_shared_experts=hf_dict.get("n_shared_experts", 1),
                 top_k=hf_dict.get("num_experts_per_tok", 2)
             )
+        elif "gemma" in model_type:
+            return StandardModelConfig(
+                model_type="gemma",
+                dim=dim,
+                num_heads=num_heads,
+                intermediate_dim=intermediate_dim,
+                eps=eps,
+                qkv_bias=False
+            )
         else: # Standard LLaMA-like
             return StandardModelConfig(
                 model_type="llama",
