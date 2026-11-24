@@ -1,0 +1,121 @@
+# ==============================================================================
+# Zen-NPU Declarative Hardware Blueprint Specification (YAML Template)
+# ==============================================================================
+# Use this configuration file to quickly describe a brand-new multi-die
+# heterogeneous chip combination (NPU, GPU, DSP, DSA, 3D-DRAM, CXL).
+# Load via: comp = ChipComposition.from_yaml_file("configs/hetero_superchip_example.yaml")
+# ==============================================================================
+
+name: NextGen_Modular_LLM_Superchip
+hierarchy: package    # Options: die, package, board, rack_cluster
+clock_ghz: 1.2        # Default nominal chip frequency in GHz
+
+# ------------------------------------------------------------------------------
+# 1. Compute & Control Dies (芯粒计算单元定义)
+# ------------------------------------------------------------------------------
+dies:
+  # Primary Matrix Systolic Array Die (2D GEMM / Attention)
+  - id: npu_die_0
+    name: Primary_Systolic_NPU_Die
+    type: npu               # Archetypes: npu, gpu, dsp, dsa, cpu, pim
+    cores: 8                # Number of parallel systolic cores
+    sram_kb: 2048           # Core-local SRAM capacity in KB
+    frequency_ghz: 1.2
+
+  # Secondary Matrix Systolic Array Die (Model Parallelism / Ping-Pong)
+  - id: npu_die_1
+    name: Secondary_Systolic_NPU_Die
+    type: npu
+    cores: 8
+    sram_kb: 2048
+    frequency_ghz: 1.2
+
+  # High-Throughput SIMD Vector DSP Die (RoPE, SiLU, GELU, Elementwise)
+  - id: dsp_vector_die
+    name: Vector_DSP_Activation_Die
+    type: dsp
+    cores: 4
+    sram_kb: 512
+    throughput_cycles: 0.20 # Cycles per element (default: 0.20)
+
+  # Dedicated Hardwired ASIC Accelerator Die (RMSNorm, Softmax)
+  - id: dsa_norm_die
+    name: Dedicated_Fixed_ASIC_DSA_Die
+    type: dsa
+    cores: 2
+    sram_kb: 64
+    throughput_cycles: 0.05 # Dedicated hardware fast-path (0.05 cyc/elem)
+
+  # General-Purpose Host Control CPU Die (Fallbacks, Dispatching)
+  - id: host_cpu_die
+    name: Control_CPU_Die
+    type: cpu
+    cores: 4
+    throughput_cycles: 2.0
+
+# ------------------------------------------------------------------------------
+# 2. Storage Media & Memory Hierarchy (多级存储介质定义)
+# ------------------------------------------------------------------------------
+memories:
+  # 3D TSV-Stacked HBM4 DRAM Stack (Attached to NPU 0)
+  - id: hbm4_stack_0
+    name: UltraWide_3D_DRAM_Stack
+    type: 3d_dram           # Options: 3d_dram, lpddr, cxl, flash, pim, sram
+    capacity_gb: 32         # Size in GB
+    bandwidth_gb_s: 1536.0  # Read/Write bandwidth in GB/s
+    latency_ns: 10          # Access latency in nanoseconds
+    attached_to: npu_die_0  # Directly stacked or attached to this die
+
+  # Shared Pooled CXL 3.0 High-Bandwidth Flash (Model Weights & KV Offload)
+  - id: shared_cxl_pool
+    name: Pooled_CXL_Weight_Expansion
+    type: cxl
+    capacity_gb: 512
+    bandwidth_gb_s: 64.0
+    latency_ns: 120
+    attached_to: [npu_die_0, npu_die_1, host_cpu_die] # Multi-socket coherent access
+
+  # Host LPDDR5X System Memory
+  - id: host_lpddr5x
+    name: Host_System_LPDDR
+    type: lpddr
+    capacity_gb: 128
+    bandwidth_gb_s: 68.0
+    latency_ns: 45
+    attached_to: host_cpu_die
+
+# ------------------------------------------------------------------------------
+# 3. Interconnect Links (Die-to-Die 互联拓扑与带宽延迟)
+# ------------------------------------------------------------------------------
+links:
+  # Advanced 2.5D UCIe Die-to-Die between NPU 0 and NPU 1
+  - name: ucie_npu0_to_npu1
+    between: [npu_die_0, npu_die_1]
+    type: ucie_advanced     # Options: ucie_advanced, direct_tsv, nvlink_c2c, cxl_3_0_pcie, noc_2d_mesh
+    bandwidth_gb_s: 1024.0  # Inter-die bandwidth in GB/s
+    latency_cycles: 8       # Startup flit latency in clock cycles
+    bidirectional: true
+
+  # Advanced 2.5D UCIe Die-to-Die between NPU 0 and Vector DSP
+  - name: ucie_npu0_to_dsp
+    between: [npu_die_0, dsp_vector_die]
+    type: ucie_advanced
+    bandwidth_gb_s: 512.0
+    latency_cycles: 10
+    bidirectional: true
+
+  # Advanced 2.5D UCIe Die-to-Die between NPU 0 and Fixed DSA
+  - name: ucie_npu0_to_dsa
+    between: [npu_die_0, dsa_norm_die]
+    type: ucie_advanced
+    bandwidth_gb_s: 512.0
+    latency_cycles: 10
+    bidirectional: true
+
+  # Advanced 2.5D UCIe Die-to-Die between NPU 0 and Host CPU
+  - name: ucie_npu0_to_cpu
+    between: [npu_die_0, host_cpu_die]
+    type: ucie_advanced
+    bandwidth_gb_s: 512.0
+    latency_cycles: 16
+    bidirectional: true

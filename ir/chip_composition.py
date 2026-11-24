@@ -796,6 +796,310 @@ class ChipComposition:
         return "\n".join(lines)
 
     @classmethod
+    def from_spec(cls, spec: Dict[str, Any]) -> 'ChipComposition':
+        """
+        Declarative Hardware Blueprint Specification Ingestion.
+        Instantiates a fully routed, multi-tier heterogeneous chip composition
+        from a concise dictionary or YAML configuration.
+        """
+        name = spec.get("name", "Custom_Hetero_Superchip")
+        h_str = spec.get("hierarchy", "package").lower()
+        h_level = HierarchyLevel.PACKAGE
+        for lvl in HierarchyLevel:
+            if lvl.value == h_str:
+                h_level = lvl
+                break
+
+        comp = cls(name=name, hierarchy_level=h_level)
+        default_clock = float(spec.get("clock_ghz", 1.0))
+
+        # -------------------------------------------------------------
+        # 1. Parse & Ingest Dies (Compute & Control Chiplets)
+        # -------------------------------------------------------------
+        dies_spec = spec.get("dies", [])
+        for d in dies_spec:
+            die_id = d["id"]
+            die_name = d.get("name", die_id)
+            die_type = d.get("type", "npu").lower()
+            cores = int(d.get("cores", 4))
+            clock = float(d.get("frequency_ghz", default_clock))
+
+            # Determine Role
+            if die_type in ("npu", "gpu", "dsp"):
+                role = ChipRole.COMPUTE_ACCELERATOR
+            elif die_type in ("dsa", "asic"):
+                role = ChipRole.SPECIALIZED_ASIC
+            elif die_type == "cpu":
+                role = ChipRole.HOST_CONTROLLER
+            elif die_type == "pim":
+                role = ChipRole.PIM_MEMORY
+            else:
+                role = ChipRole.COMPUTE_ACCELERATOR
+
+            chiplet = Chiplet(id=die_id, name=die_name, role=role, clock_frequency_ghz=clock)
+
+            # Local SRAM on Die
+            sram_kb = int(d.get("sram_kb", 1024))
+            if sram_kb > 0:
+                sram_bytes = sram_kb * 1024
+                chiplet.add_tier(MemoryTier(
+                    name=f"{die_id}_Local_SRAM",
+                    space=MemorySpace.CORE_LOCAL_SRAM,
+                    capacity_bytes=sram_bytes,
+                    read_bandwidth_bytes_cycle=1024.0,
+                    write_bandwidth_bytes_cycle=1024.0,
+                    read_latency_cycles=4
+                ))
+
+            # Auto-configure Compute Engines according to Die Archetype
+            tp = float(d.get("throughput_cycles", 0.0))
+            user_ops = d.get("supported_ops", None)
+
+            if die_type == "npu":
+                ops = user_ops or [
+                    "matmul", "gemm", "fused_matmul_add_relu", "fused_matmul_add",
+                    "fused_flash_attention", "fused_horizontal_qkv_matmul", "swiglu", "geglu"
+                ]
+                chiplet.add_engine(ComputeEngine(
+                    id=f"{die_id}_systolic_array",
+                    kind=EngineKind.SYSTOLIC_NPU,
+                    count=cores,
+                    supported_ops=ops,
+                    throughput_cycles_per_elem=tp or 0.125,
+                    local_memory_tier=f"{die_id}_Local_SRAM",
+                    queue_name=f"{die_id}_matrix_queue"
+                ))
+            elif die_type == "gpu":
+                ops = user_ops or ["matmul", "gemm", "attention", "conv2d", "all_elementwise"]
+                chiplet.add_engine(ComputeEngine(
+                    id=f"{die_id}_gpu_cluster",
+                    kind=EngineKind.SYSTOLIC_NPU,
+                    count=cores,
+                    supported_ops=ops,
+                    throughput_cycles_per_elem=tp or 0.10,
+                    local_memory_tier=f"{die_id}_Local_SRAM",
+                    queue_name=f"{die_id}_gpu_queue"
+                ))
+            elif die_type == "dsp":
+                ops = user_ops or ["silu", "gelu", "rope", "add", "mul", "scale", "relu"]
+                chiplet.add_engine(ComputeEngine(
+                    id=f"{die_id}_vector_engine",
+                    kind=EngineKind.SIMD_VECTOR,
+                    count=cores,
+                    supported_ops=ops,
+                    throughput_cycles_per_elem=tp or 0.20,
+                    local_memory_tier=f"{die_id}_Local_SRAM",
+                    queue_name=f"{die_id}_vector_queue"
+                ))
+            elif die_type in ("dsa", "asic"):
+                ops = user_ops or ["rmsnorm", "fused_add_rmsnorm", "softmax"]
+                if "rmsnorm" in ops or "fused_add_rmsnorm" in ops:
+                    chiplet.add_engine(ComputeEngine(
+                        id=f"{die_id}_norm_asic",
+                        kind=EngineKind.FIXED_ASIC,
+                        count=cores,
+                        supported_ops=["rmsnorm", "fused_add_rmsnorm"],
+                        throughput_cycles_per_elem=tp or 0.05,
+                        local_memory_tier=f"{die_id}_Local_SRAM",
+                        queue_name=f"{die_id}_asic_norm_queue"
+                    ))
+                if "softmax" in ops:
+                    chiplet.add_engine(ComputeEngine(
+                        id=f"{die_id}_softmax_asic",
+                        kind=EngineKind.FIXED_ASIC,
+                        count=cores,
+                        supported_ops=["softmax"],
+                        throughput_cycles_per_elem=tp or 0.10,
+                        local_memory_tier=f"{die_id}_Local_SRAM",
+                        queue_name=f"{die_id}_asic_softmax_queue"
+                    ))
+            elif die_type == "cpu":
+                ops = user_ops or ["all_fallback"]
+                chiplet.add_engine(ComputeEngine(
+                    id=f"{die_id}_scalar_cpu",
+                    kind=EngineKind.SCALAR_CPU,
+                    count=cores,
+                    supported_ops=ops,
+                    throughput_cycles_per_elem=tp or 2.0,
+                    local_memory_tier=f"{die_id}_Local_SRAM",
+                    queue_name=f"{die_id}_cpu_queue"
+                ))
+            elif die_type == "pim":
+                ops = user_ops or ["reduce_sum", "add", "mul", "scale"]
+                chiplet.add_engine(ComputeEngine(
+                    id=f"{die_id}_pim_engine",
+                    kind=EngineKind.PIM_ENGINE,
+                    count=cores,
+                    supported_ops=ops,
+                    throughput_cycles_per_elem=tp or 0.08,
+                    local_memory_tier=f"{die_id}_Local_SRAM",
+                    queue_name=f"{die_id}_pim_queue"
+                ))
+
+            comp.add_chip(chiplet)
+
+        # -------------------------------------------------------------
+        # 2. Parse & Ingest Memory Tiers (Attached or Independent Die)
+        # -------------------------------------------------------------
+        mem_specs = spec.get("memories", [])
+        for m in mem_specs:
+            mem_id = m["id"]
+            mem_name = m.get("name", mem_id)
+            mem_type = m.get("type", "3d_dram").lower()
+
+            # Capacity
+            cap_gb = float(m.get("capacity_gb", 0))
+            cap_mb = float(m.get("capacity_mb", 0))
+            if cap_gb > 0:
+                cap_bytes = int(cap_gb * 1024 * 1024 * 1024)
+            elif cap_mb > 0:
+                cap_bytes = int(cap_mb * 1024 * 1024)
+            else:
+                cap_bytes = 16 * 1024 * 1024 * 1024
+
+            # Bandwidth & Latency
+            bw = float(m.get("bandwidth_gb_s", m.get("bandwidth_bytes_cycle", 512.0)))
+            lat = int(m.get("latency_cycles", m.get("latency_ns", 20)))
+
+            # Memory Space
+            if mem_type in ("3d_dram", "hbm"):
+                space = MemorySpace.THREE_D_DRAM
+            elif mem_type in ("lpddr", "ddr"):
+                space = MemorySpace.LPDDR
+            elif mem_type in ("cxl", "cxl_expansion"):
+                space = MemorySpace.CXL_EXPANSION
+            elif mem_type in ("flash", "hbf_flash"):
+                space = MemorySpace.HBF_FLASH
+            elif mem_type in ("pim", "near_memory"):
+                space = MemorySpace.PIM_NEAR_MEMORY
+            else:
+                space = MemorySpace.DRAM_HBM
+
+            tier = MemoryTier(
+                name=mem_id,
+                space=space,
+                capacity_bytes=cap_bytes,
+                read_bandwidth_bytes_cycle=bw,
+                write_bandwidth_bytes_cycle=bw if "write_bandwidth" not in m else float(m["write_bandwidth"]),
+                read_latency_cycles=lat
+            )
+
+            attached_to = m.get("attached_to", None)
+            is_indep = m.get("is_independent_die", False)
+
+            if isinstance(attached_to, str) and not is_indep and attached_to in comp.chips:
+                # Direct internal tier on single die
+                comp.chips[attached_to].add_tier(tier)
+                comp._tier_to_chip[tier.name] = attached_to
+            else:
+                # Standalone memory die / pooled expansion
+                mem_die = Chiplet(
+                    id=mem_id,
+                    name=mem_name,
+                    role=ChipRole.STORAGE_EXPANSION if space != MemorySpace.PIM_NEAR_MEMORY else ChipRole.PIM_MEMORY,
+                    clock_frequency_ghz=default_clock
+                )
+                mem_die.add_tier(tier)
+                comp.add_chip(mem_die)
+
+                # Auto-connect to attached dies
+                targets = [attached_to] if isinstance(attached_to, str) else (attached_to or [])
+                for tgt_id in targets:
+                    if tgt_id in comp.chips:
+                        # Determine default link type according to memory space
+                        if space in (MemorySpace.THREE_D_DRAM, MemorySpace.PIM_NEAR_MEMORY):
+                            ltype = InterconnectType.DIRECT_TSV
+                            link_bw = bw
+                            link_lat = 10
+                        elif space in (MemorySpace.CXL_EXPANSION, MemorySpace.HBF_FLASH):
+                            ltype = InterconnectType.CXL_3_0_PCIE
+                            link_bw = min(bw, 128.0)
+                            link_lat = 80
+                        else:
+                            ltype = InterconnectType.UCIE_ADVANCED
+                            link_bw = bw
+                            link_lat = 12
+
+                        link_name = f"link_{tgt_id}_to_{mem_id}"
+                        comp.add_link(InterconnectLink(
+                            name=link_name,
+                            src_chip=tgt_id,
+                            dst_chip=mem_id,
+                            link_type=ltype,
+                            bandwidth_bytes_cycle=link_bw,
+                            latency_cycles=link_lat,
+                            bidirectional=True
+                        ))
+
+        # -------------------------------------------------------------
+        # 3. Parse & Ingest Explicit Interconnect Links
+        # -------------------------------------------------------------
+        links_spec = spec.get("links", [])
+        for idx, l in enumerate(links_spec):
+            src, dst = l["between"]
+            link_name = l.get("name", f"link_{src}_to_{dst}_{idx}")
+            ltype_str = l.get("type", "ucie_advanced").lower()
+
+            if "tsv" in ltype_str:
+                ltype = InterconnectType.DIRECT_TSV
+            elif "cxl" in ltype_str:
+                ltype = InterconnectType.CXL_3_0_PCIE
+            elif "nvlink" in ltype_str:
+                ltype = InterconnectType.NVLINK_C2C
+            elif "noc" in ltype_str:
+                ltype = InterconnectType.NOC_2D_MESH
+            elif "ethernet" in ltype_str:
+                ltype = InterconnectType.ETHERNET_SCALE_UP
+            else:
+                ltype = InterconnectType.UCIE_ADVANCED
+
+            bw = float(l.get("bandwidth_gb_s", l.get("bandwidth_bytes_cycle", 512.0)))
+            lat = int(l.get("latency_cycles", l.get("latency_ns", 10)))
+            bidir = bool(l.get("bidirectional", True))
+
+            comp.add_link(InterconnectLink(
+                name=link_name,
+                src_chip=src,
+                dst_chip=dst,
+                link_type=ltype,
+                bandwidth_bytes_cycle=bw,
+                latency_cycles=lat,
+                bidirectional=bidir
+            ))
+
+        return comp
+
+    @classmethod
+    def from_yaml(cls, yaml_content: str) -> 'ChipComposition':
+        """Constructs a ChipComposition from a YAML string."""
+        import yaml
+        spec = yaml.safe_load(yaml_content)
+        return cls.from_spec(spec)
+
+    @classmethod
+    def from_yaml_file(cls, filepath: str) -> 'ChipComposition':
+        """Constructs a ChipComposition from a YAML file path."""
+        import yaml
+        with open(filepath, "r", encoding="utf-8") as f:
+            spec = yaml.safe_load(f)
+        return cls.from_spec(spec)
+
+    @classmethod
+    def from_json(cls, json_content: str) -> 'ChipComposition':
+        """Constructs a ChipComposition from a JSON string."""
+        import json
+        spec = json.loads(json_content)
+        return cls.from_spec(spec)
+
+    @classmethod
+    def from_json_file(cls, filepath: str) -> 'ChipComposition':
+        """Constructs a ChipComposition from a JSON file path."""
+        import json
+        with open(filepath, "r", encoding="utf-8") as f:
+            spec = json.load(f)
+        return cls.from_spec(spec)
+
+    @classmethod
     def create_modular_llm_superchip_composition(cls) -> 'ChipComposition':
         """
         Industry-Leading Modular Multi-Die Heterogeneous Superchip Composition:
