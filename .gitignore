@@ -1,7 +1,17 @@
+# Python cache & bytecode
 __pycache__/
 *.py[cod]
 *$py.class
 *.o
+
+# IDE & OS
 .DS_Store
 .vscode/
 .idea/
+
+# Compiler build & emission outputs
+artifacts/
+output/
+build/
+generated_*.c
+generated_*.s

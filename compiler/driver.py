@@ -124,11 +124,12 @@ class CompiledArtifact:
         return [sim.read_tensor(out) for out in concrete_graph.outputs]
 
 
-class ZenNPUCompiler:
+class LLMCompiler:
     """
-    Unified AI Graph Compiler Driver for Zen-NPU.
-    Absorbs the architectural pillars of Mojo/MAX, IREE, and TVM.
-    Supports SymInt Dynamic Symbolic Shapes and Presburger Constraint Solving!
+    Unified AI Graph Compiler Driver (LLMGraphCompiler / LLMCompiler).
+    Absorbs the architectural pillars of Mojo/MAX, IREE, MLIR, and TVM.
+    Supports SymInt Dynamic Symbolic Shapes, Heterogeneous Multi-Die Chiplets,
+    and Progressive Dialect Lowering.
     """
     def __init__(
         self,
@@ -263,3 +264,9 @@ class ZenNPUCompiler:
             num_cores=self.num_cores,
             solver=active_solver
         )
+
+
+# Ergonomic & Backward-Compatible Aliases
+LLMGraphCompiler = LLMCompiler
+Compiler = LLMCompiler
+ZenNPUCompiler = LLMCompiler

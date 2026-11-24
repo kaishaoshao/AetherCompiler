@@ -28,7 +28,7 @@ from .pass_manager import (
 )
 
 # Driver
-from .driver import ZenNPUCompiler, CompiledArtifact
+from .driver import LLMCompiler, LLMGraphCompiler, Compiler, ZenNPUCompiler, CompiledArtifact
 
 # Convenience re-exports of primary symbols
 from .frontend import Graph, Tensor, ops, DType, FLOAT32, FLOAT16, BFLOAT16, INT8, INT4
@@ -39,6 +39,9 @@ from .ir import (
 
 __all__ = [
     # Top-level driver & artifacts
+    "LLMCompiler",
+    "LLMGraphCompiler",
+    "Compiler",
     "ZenNPUCompiler",
     "CompiledArtifact",
 
