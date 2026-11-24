@@ -155,6 +155,9 @@ class InterconnectLink:
         DataMoverType.DMA_1D, DataMoverType.DMA_2D_STRIDED
     ])
 
+    def __lt__(self, other: 'InterconnectLink') -> bool:
+        return self.name < other.name
+
     def __repr__(self) -> str:
         arrow = "<===>" if self.bidirectional else "--->"
         return (
@@ -226,6 +229,9 @@ class Chiplet:
     def find_best_engine_for_op(self, op_type: str, preferred_tier: Optional[str] = None) -> Optional[ComputeEngine]:
         """Queries the underlying TargetArchitecture for the optimal execution engine."""
         return self.to_target_architecture().find_best_engine_for_op(op_type, preferred_tier)
+
+    def __lt__(self, other: 'InterconnectLink') -> bool:
+        return self.name < other.name
 
     def __repr__(self) -> str:
         mem_keys = list(self.memory_tiers.keys())
@@ -489,14 +495,15 @@ class ChipComposition:
             if l.bidirectional:
                 adj[l.dst_chip].append((l.src_chip, l))
 
-        # Priority queue stores (accumulated_latency, current_chip, path_links)
-        pq = [(0, src_chip.id, [])]
+        # Priority queue stores (accumulated_latency, tie_counter, current_chip, path_links)
+        counter = 0
+        pq = [(0, counter, src_chip.id, [])]
         visited: Set[str] = set()
         best_path: Optional[List[InterconnectLink]] = None
         best_latency = float('inf')
 
         while pq:
-            curr_lat, curr_chip, path = heapq.heappop(pq)
+            curr_lat, _, curr_chip, path = heapq.heappop(pq)
             if curr_chip in visited:
                 continue
             visited.add(curr_chip)
@@ -508,8 +515,9 @@ class ChipComposition:
 
             for nxt_chip, link in adj[curr_chip]:
                 if nxt_chip not in visited:
+                    counter += 1
                     hop_lat = link.latency_cycles
-                    heapq.heappush(pq, (curr_lat + hop_lat, nxt_chip, path + [link]))
+                    heapq.heappush(pq, (curr_lat + hop_lat, counter, nxt_chip, path + [link]))
 
         if best_path is None:
             raise RuntimeError(
@@ -856,18 +864,33 @@ class ChipComposition:
             user_ops = d.get("supported_ops", None)
 
             if die_type == "npu":
-                ops = user_ops or [
+                # Modern NPU Core Architecture: Composite of 2D MAC Matrix Array (Cube) + 1D SIMD Vector ALU
+                # 1. High-Density 2D Matrix MAC Engine (Cube / Systolic 2D Array)
+                matrix_ops = d.get("matrix_ops", user_ops or [
                     "matmul", "gemm", "fused_matmul_add_relu", "fused_matmul_add",
                     "fused_flash_attention", "fused_horizontal_qkv_matmul", "swiglu", "geglu"
-                ]
+                ])
                 chiplet.add_engine(ComputeEngine(
-                    id=f"{die_id}_systolic_array",
+                    id=f"{die_id}_mac_matrix_cube",
                     kind=EngineKind.SYSTOLIC_NPU,
                     count=cores,
-                    supported_ops=ops,
+                    supported_ops=matrix_ops,
                     throughput_cycles_per_elem=tp or 0.125,
                     local_memory_tier=f"{die_id}_Local_SRAM",
                     queue_name=f"{die_id}_matrix_queue"
+                ))
+                # 2. Flexible 1D SIMD Vector ALU Engine (Activations, RoPE, Reductions, Normalizations)
+                vector_ops = d.get("vector_ops", [
+                    "silu", "gelu", "rope", "rmsnorm", "softmax", "add", "mul", "scale", "relu"
+                ])
+                chiplet.add_engine(ComputeEngine(
+                    id=f"{die_id}_vector_engine",
+                    kind=EngineKind.SIMD_VECTOR,
+                    count=cores,
+                    supported_ops=vector_ops,
+                    throughput_cycles_per_elem=float(d.get("vector_throughput_cycles", 0.25)),
+                    local_memory_tier=f"{die_id}_Local_SRAM",
+                    queue_name=f"{die_id}_vector_queue"
                 ))
             elif die_type == "gpu":
                 ops = user_ops or ["matmul", "gemm", "attention", "conv2d", "all_elementwise"]
