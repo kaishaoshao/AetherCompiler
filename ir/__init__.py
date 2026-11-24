@@ -4,7 +4,9 @@ from .loop_ir import (
 )
 from .command_ir import (
     Command, CmdComment, CmdDmaAsync, CmdDmaWait, CmdCustom0Op,
-    CmdKernelCall, CmdRawCode, CommandModule
+    CmdKernelCall, CmdRawCode, CommandModule,
+    CmdChannelAlloc, CmdInterChipSendAsync, CmdInterChipRecvAsync,
+    CmdChannelSync, CmdObjectFifoAcquire, CmdObjectFifoRelease
 )
 from .lowering import (
     lower_graph_to_loop_ir,
@@ -27,10 +29,12 @@ from .target_desc import (
     TargetArchitecture
 )
 from .chip_composition import (
+    HierarchyLevel,
     InterconnectType,
     TransferStrategy,
     InterconnectProtocolProfile,
     get_protocol_profile,
+    OffloadDecision,
     ChipRole,
     InterconnectLink,
     Chiplet,
@@ -44,13 +48,17 @@ __all__ = [
     "KernelCall", "ForLoop", "RawCodeStmt", "LoopFunction", "LoopModule",
     "Command", "CmdComment", "CmdDmaAsync", "CmdDmaWait", "CmdCustom0Op",
     "CmdKernelCall", "CmdRawCode", "CommandModule",
+    "CmdChannelAlloc", "CmdInterChipSendAsync", "CmdInterChipRecvAsync",
+    "CmdChannelSync", "CmdObjectFifoAcquire", "CmdObjectFifoRelease",
     "lower_graph_to_loop_ir",
     "lower_loop_ir_to_command_ir",
     "SymExpr", "SymVar", "SymConst", "SymBinary", "Constraint",
     "SymbolicConstraintSolver", "sym_var", "sym_const",
     "MemorySpace", "MemoryTier", "MemoryHierarchy", "DataMoverType", "DataTransferDescriptor",
     "EngineKind", "ComputeEngine", "TargetArchitecture",
+    "HierarchyLevel",
     "InterconnectType", "TransferStrategy", "InterconnectProtocolProfile", "get_protocol_profile",
+    "OffloadDecision",
     "ChipRole", "InterconnectLink", "Chiplet", "DataPathHop",
     "InterChipDataRoute", "ChipComposition"
 ]

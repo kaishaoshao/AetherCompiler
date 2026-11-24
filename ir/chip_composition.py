@@ -27,8 +27,16 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Set, Any
 import heapq
 
-from .memory_space import MemorySpace, MemoryTier, DataMoverType, DataTransferDescriptor
-from .target_desc import EngineKind, ComputeEngine
+from .memory_space import MemorySpace, MemoryTier, MemoryHierarchy, DataMoverType, DataTransferDescriptor
+from .target_desc import EngineKind, ComputeEngine, TargetArchitecture
+
+
+class HierarchyLevel(Enum):
+    """Physical aggregation hierarchy level."""
+    DIE = "die"                     # Single silicon die / chiplet
+    PACKAGE = "package"             # 2.5D / 3D Multi-Chip Module (CoWoS, EMIB, InFO)
+    BOARD = "board"                 # Multi-socket / PCIe / CXL board
+    RACK_CLUSTER = "rack_cluster"   # Scale-up optical / NVLink / Ethernet cluster
 
 
 class InterconnectType(Enum):
@@ -164,6 +172,7 @@ class Chiplet:
     memory_tiers: Dict[str, MemoryTier] = field(default_factory=dict)
     compute_engines: Dict[str, ComputeEngine] = field(default_factory=dict)
     clock_frequency_ghz: float = 1.0
+    target_arch: Optional[TargetArchitecture] = None
 
     def add_tier(self, tier: MemoryTier) -> 'Chiplet':
         self.memory_tiers[tier.name] = tier
@@ -177,6 +186,46 @@ class Chiplet:
         if name not in self.memory_tiers:
             raise KeyError(f"Memory tier '{name}' not found on chip '{self.id}'!")
         return self.memory_tiers[name]
+
+    @classmethod
+    def from_target_architecture(
+        cls,
+        id: str,
+        target: TargetArchitecture,
+        role: ChipRole = ChipRole.COMPUTE_ACCELERATOR,
+        name: Optional[str] = None
+    ) -> 'Chiplet':
+        """Constructs a modular Chiplet directly from a TargetArchitecture instance."""
+        return cls(
+            id=id,
+            name=name or target.name,
+            role=role,
+            memory_tiers=dict(target.memory_hierarchy.tiers),
+            compute_engines=dict(target.engines),
+            clock_frequency_ghz=target.clock_frequency_ghz,
+            target_arch=target
+        )
+
+    def to_target_architecture(self, name: Optional[str] = None) -> TargetArchitecture:
+        """Exposes or synthesizes the full TargetArchitecture for this individual Chiplet."""
+        if self.target_arch is not None:
+            return self.target_arch
+        mem_hier = MemoryHierarchy()
+        for t in self.memory_tiers.values():
+            mem_hier.add_tier(t)
+        target = TargetArchitecture(
+            name=name or self.name,
+            memory_hierarchy=mem_hier,
+            engines=dict(self.compute_engines),
+            supported_movers=[DataMoverType.DMA_1D, DataMoverType.DMA_2D_STRIDED],
+            clock_frequency_ghz=self.clock_frequency_ghz
+        )
+        self.target_arch = target
+        return target
+
+    def find_best_engine_for_op(self, op_type: str, preferred_tier: Optional[str] = None) -> Optional[ComputeEngine]:
+        """Queries the underlying TargetArchitecture for the optimal execution engine."""
+        return self.to_target_architecture().find_best_engine_for_op(op_type, preferred_tier)
 
     def __repr__(self) -> str:
         mem_keys = list(self.memory_tiers.keys())
@@ -218,6 +267,31 @@ class InterChipDataRoute:
         return self.total_startup_cycles + max(1, transfer_cycles)
 
 
+@dataclass
+class OffloadDecision:
+    """Encapsulates compiler offload viability arbitration and interconnect scheduling parameters."""
+    approved: bool
+    reason: str
+    ccr: float
+    transfer_strategy: TransferStrategy
+    recommended_chunk_bytes: int
+    estimated_speedup: float
+
+    def __iter__(self):
+        yield self.approved
+        yield self.reason
+        yield self.ccr
+
+    def __getitem__(self, idx):
+        if idx == 0:
+            return self.approved
+        elif idx == 1:
+            return self.reason
+        elif idx == 2:
+            return self.ccr
+        raise IndexError(idx)
+
+
 class ChipComposition:
     """
     Declarative Heterogeneous Chip Combination Architecture.
@@ -226,10 +300,12 @@ class ChipComposition:
     multi-tier interconnect links (UCIe, TSV, CXL, NVLink, NoC).
     Provides topology routing, multi-chip memory placement, and communication-aware dispatching.
     """
-    def __init__(self, name: str = "Heterogeneous_Chip_Composition"):
+    def __init__(self, name: str = "Heterogeneous_Chip_Composition", hierarchy_level: HierarchyLevel = HierarchyLevel.PACKAGE):
         self.name = name
+        self.hierarchy_level = hierarchy_level
         self.chips: Dict[str, Chiplet] = {}
         self.links: List[InterconnectLink] = []
+        self.sub_compositions: Dict[str, 'ChipComposition'] = {}
         self._tier_to_chip: Dict[str, str] = {}
         self._engine_to_chip: Dict[str, str] = {}
 
@@ -241,6 +317,94 @@ class ChipComposition:
             self._engine_to_chip[eng_name] = chip.id
         return self
 
+    def add_sub_composition(
+        self,
+        name: str,
+        sub: 'ChipComposition',
+        inter_links: Optional[List[InterconnectLink]] = None
+    ) -> 'ChipComposition':
+        """Recursively registers a sub-composition (Die -> Package -> Board -> Rack)."""
+        self.sub_compositions[name] = sub
+        for chip in sub.get_all_chiplets().values():
+            self.add_chip(chip)
+        for link in sub.links:
+            if link not in self.links:
+                self.links.append(link)
+        if inter_links:
+            for link in inter_links:
+                self.add_link(link)
+        return self
+
+    def get_all_chiplets(self) -> Dict[str, Chiplet]:
+        """Returns all chiplets across self and all nested sub-compositions."""
+        all_chips = dict(self.chips)
+        for sub in self.sub_compositions.values():
+            all_chips.update(sub.get_all_chiplets())
+        return all_chips
+
+    def find_best_engine_global(
+        self,
+        op_type: str,
+        preferred_chip: Optional[str] = None
+    ) -> List[Tuple[Chiplet, ComputeEngine]]:
+        """
+        Discovers all engines capable of executing op_type across all chiplets in the composition hierarchy.
+        Returns a sorted list of (chiplet, engine) pairs ordered by throughput (lowest cycles_per_elem first).
+        """
+        candidates: List[Tuple[Chiplet, ComputeEngine]] = []
+        all_chips = self.get_all_chiplets()
+
+        if preferred_chip and preferred_chip in all_chips:
+            chip = all_chips[preferred_chip]
+            eng = chip.find_best_engine_for_op(op_type)
+            if eng and eng.can_execute(op_type):
+                candidates.append((chip, eng))
+
+        for chip in all_chips.values():
+            if preferred_chip and chip.id == preferred_chip:
+                continue
+            for eng in chip.compute_engines.values():
+                if eng.can_execute(op_type):
+                    candidates.append((chip, eng))
+
+        candidates.sort(key=lambda pair: pair[1].throughput_cycles_per_elem)
+        return candidates
+
+    def to_target_architecture(self, name: Optional[str] = None) -> TargetArchitecture:
+        """
+        Synthesizes a unified, global TargetArchitecture view spanning all chiplets in the composition hierarchy.
+        Allows any existing compiler pass expecting a TargetArchitecture to consume a multi-die composition directly.
+        """
+        all_tiers: Dict[str, MemoryTier] = {}
+        all_engines: Dict[str, ComputeEngine] = {}
+        all_movers: Set[DataMoverType] = {DataMoverType.DMA_1D, DataMoverType.DMA_2D_STRIDED}
+
+        for chip in self.get_all_chiplets().values():
+            for tier_name, tier in chip.memory_tiers.items():
+                all_tiers[f"{chip.id}::{tier_name}"] = tier
+                if tier_name not in all_tiers:
+                    all_tiers[tier_name] = tier
+            for eng_name, eng in chip.compute_engines.items():
+                all_engines[f"{chip.id}::{eng_name}"] = eng
+                if eng_name not in all_engines:
+                    all_engines[eng_name] = eng
+
+        mem_hierarchy = MemoryHierarchy()
+        for tier_alias, tier in all_tiers.items():
+            mem_hierarchy.tiers[tier_alias] = tier
+            if tier.space in (MemorySpace.THREE_D_DRAM, MemorySpace.DRAM_HBM, MemorySpace.LPDDR):
+                mem_hierarchy.default_off_chip = tier_alias
+            elif tier.space == MemorySpace.CORE_LOCAL_SRAM:
+                mem_hierarchy.default_scratchpad = tier_alias
+        target = TargetArchitecture(
+            name=name or f"Unified_{self.name}",
+            memory_hierarchy=mem_hierarchy,
+            engines=all_engines,
+            supported_movers=list(all_movers),
+            clock_frequency_ghz=max((c.clock_frequency_ghz for c in self.get_all_chiplets().values()), default=1.0)
+        )
+        return target
+
     def add_link(self, link: InterconnectLink) -> 'ChipComposition':
         if link.src_chip not in self.chips or link.dst_chip not in self.chips:
             raise ValueError(f"Link {link.name} connects unknown chips: {link.src_chip} -> {link.dst_chip}")
@@ -248,9 +412,22 @@ class ChipComposition:
         return self
 
     def get_chip_of_tier(self, tier_name: str) -> Chiplet:
-        if tier_name not in self._tier_to_chip:
-            raise KeyError(f"Memory tier '{tier_name}' does not belong to any chip in composition!")
-        return self.chips[self._tier_to_chip[tier_name]]
+        if tier_name in self._tier_to_chip and self._tier_to_chip[tier_name] in self.chips:
+            return self.chips[self._tier_to_chip[tier_name]]
+        for chip in self.get_all_chiplets().values():
+            if tier_name in chip.memory_tiers:
+                self._tier_to_chip[tier_name] = chip.id
+                return chip
+        raise KeyError(f"Memory tier '{tier_name}' does not belong to any chip in composition!")
+
+    def get_chip_of_engine(self, engine_id: str) -> Chiplet:
+        if engine_id in self._engine_to_chip and self._engine_to_chip[engine_id] in self.chips:
+            return self.chips[self._engine_to_chip[engine_id]]
+        for chip in self.get_all_chiplets().values():
+            if engine_id in chip.compute_engines:
+                self._engine_to_chip[engine_id] = chip.id
+                return chip
+        raise KeyError(f"Engine '{engine_id}' does not belong to any chip in composition!")
 
     def get_tier(self, tier_name: str) -> MemoryTier:
         chip = self.get_chip_of_tier(tier_name)
@@ -542,14 +719,15 @@ class ChipComposition:
         tensor_bytes: int,
         route: InterChipDataRoute,
         target_engine_throughput_cycles_elem: float = 0.05,
-        local_engine_throughput_cycles_elem: float = 0.5
-    ) -> Tuple[bool, str, float]:
+        local_engine_throughput_cycles_elem: float = 0.5,
+        **kwargs
+    ) -> 'OffloadDecision':
         """
         Analyzes whether offloading an operator across the interconnect route is profitable:
         Compares:
         - Transfer cycles over the specific interconnect route (UCIe vs CXL)
         - Local compute cycles vs Remote compute cycles
-        Returns: (is_profitable, detailed_verdict, communication_to_compute_ratio)
+        Returns: OffloadDecision (also unpackable as (is_profitable, detailed_verdict, ccr))
         """
         interconnect_info = self.analyze_interconnect_route(route)
         num_elems = max(1, tensor_bytes // 4)
@@ -560,30 +738,44 @@ class ChipComposition:
 
         total_remote_cycles = transfer_cycles + remote_cycles
         ccr = transfer_cycles / max(1.0, float(remote_cycles))
+        speedup = local_cycles / max(1, total_remote_cycles)
 
         # Check if CXL link makes fine-grained offload counterproductive
         if interconnect_info["has_cxl"]:
             if ccr > 1.0 or total_remote_cycles >= local_cycles:
-                return (
-                    False,
-                    f"REJECTED: Route crosses high-latency CXL link ({route.total_startup_cycles} startup cyc, BW={route.bottleneck_bandwidth}B/cyc). "
-                    f"Transfer ({transfer_cycles} cyc) exceeds local compute ({local_cycles} cyc). CCR={ccr:.2f} > 1.0. Keep local!",
-                    ccr
+                return OffloadDecision(
+                    approved=False,
+                    reason=(
+                        f"REJECTED: Route crosses high-latency CXL link ({route.total_startup_cycles} startup cyc, BW={route.bottleneck_bandwidth}B/cyc). "
+                        f"Transfer ({transfer_cycles} cyc) exceeds local compute ({local_cycles} cyc). CCR={ccr:.2f} > 1.0. Keep local!"
+                    ),
+                    ccr=ccr,
+                    transfer_strategy=interconnect_info["strategy"],
+                    recommended_chunk_bytes=interconnect_info["optimal_chunk_bytes"],
+                    estimated_speedup=speedup
                 )
 
         if total_remote_cycles < local_cycles:
             link_name = interconnect_info["dominant_link_type"].value if interconnect_info["dominant_link_type"] else "internal"
-            return (
-                True,
-                f"APPROVED: Offload across '{link_name}' is profitable (Speedup={local_cycles / total_remote_cycles:.2f}x). "
-                f"Transfer={transfer_cycles} cyc, Compute={remote_cycles} cyc, CCR={ccr:.2f}.",
-                ccr
+            return OffloadDecision(
+                approved=True,
+                reason=(
+                    f"APPROVED: Offload across '{link_name}' is profitable (Speedup={speedup:.2f}x). "
+                    f"Transfer={transfer_cycles} cyc, Compute={remote_cycles} cyc, CCR={ccr:.2f}."
+                ),
+                ccr=ccr,
+                transfer_strategy=interconnect_info["strategy"],
+                recommended_chunk_bytes=interconnect_info["optimal_chunk_bytes"],
+                estimated_speedup=speedup
             )
         else:
-            return (
-                False,
-                f"REJECTED: Remote execution ({total_remote_cycles} cyc) slower than local execution ({local_cycles} cyc). CCR={ccr:.2f}.",
-                ccr
+            return OffloadDecision(
+                approved=False,
+                reason=f"REJECTED: Remote execution ({total_remote_cycles} cyc) slower than local execution ({local_cycles} cyc). CCR={ccr:.2f}.",
+                ccr=ccr,
+                transfer_strategy=interconnect_info["strategy"],
+                recommended_chunk_bytes=interconnect_info["optimal_chunk_bytes"],
+                estimated_speedup=speedup
             )
 
     def summary(self) -> str:
@@ -763,13 +955,21 @@ class ChipComposition:
             role=ChipRole.SPECIALIZED_ASIC,
             clock_frequency_ghz=1.2
         )
+        asic_die.add_tier(MemoryTier(
+            name="ASIC_Local_Line_Buffer",
+            space=MemorySpace.CORE_LOCAL_SRAM,
+            capacity_bytes=64 * 1024,
+            read_bandwidth_bytes_cycle=1024.0,
+            write_bandwidth_bytes_cycle=1024.0,
+            read_latency_cycles=2
+        ))
         asic_die.add_engine(ComputeEngine(
             id="fixed_rmsnorm_pipelined_asic",
             kind=EngineKind.FIXED_ASIC,
             count=2,
             supported_ops=["rmsnorm", "fused_add_rmsnorm"],
             throughput_cycles_per_elem=0.05,
-            local_memory_tier="NPU_Local_Scratchpad_SRAM",
+            local_memory_tier="ASIC_Local_Line_Buffer",
             queue_name="asic_norm_queue"
         ))
         asic_die.add_engine(ComputeEngine(
@@ -778,7 +978,7 @@ class ChipComposition:
             count=2,
             supported_ops=["softmax"],
             throughput_cycles_per_elem=0.10,
-            local_memory_tier="NPU_Local_Scratchpad_SRAM",
+            local_memory_tier="ASIC_Local_Line_Buffer",
             queue_name="asic_softmax_queue"
         ))
         comp.add_chip(asic_die)
@@ -874,3 +1074,6 @@ class ChipComposition:
         ))
 
         return comp
+
+    # Convenient alias
+    create_default_superchip = create_modular_llm_superchip_composition

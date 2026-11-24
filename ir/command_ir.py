@@ -63,6 +63,171 @@ class CmdDmaWait(Command):
         return f"hal.fence.await_dma(){cmt}"
 
 
+class CmdChannelAlloc(Command):
+    """
+    Allocates a dedicated hardware communication channel / buffer descriptor (BD)
+    across an interconnect link (e.g. UCIe Die-to-Die, CXL, or NoC virtual channel).
+    """
+    def __init__(
+        self,
+        channel_id: int,
+        link_type: str,
+        src_chip: str,
+        dst_chip: str,
+        depth: int = 2,
+        slot_bytes: int = 4096,
+        comment: str = ""
+    ):
+        self.channel_id = channel_id
+        self.link_type = link_type
+        self.src_chip = src_chip
+        self.dst_chip = dst_chip
+        self.depth = depth
+        self.slot_bytes = slot_bytes
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"{sp}npu_channel_alloc({self.channel_id}, {self.depth}, {self.slot_bytes});{cmt}"
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return (
+            f"hal.channel.alloc @chan{self.channel_id} link=\"{self.link_type}\" "
+            f"src=\"{self.src_chip}\" dst=\"{self.dst_chip}\" depth={self.depth} slot_bytes={self.slot_bytes}{cmt}"
+        )
+
+
+class CmdInterChipSendAsync(Command):
+    """
+    Asynchronous, non-blocking push across an inter-chip interconnect channel (UCIe / CXL / NoC).
+    Signals a completion token/semaphore upon physical flit/packet transmission.
+    """
+    def __init__(
+        self,
+        channel_id: int,
+        src_expr: str,
+        bytes_expr: str,
+        dst_chip: str,
+        token_id: int = 0,
+        comment: str = ""
+    ):
+        self.channel_id = channel_id
+        self.src_expr = src_expr
+        self.bytes_expr = bytes_expr
+        self.dst_chip = dst_chip
+        self.token_id = token_id
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f'{sp}npu_interchip_send_async({self.channel_id}, {self.src_expr}, {self.bytes_expr}, "{self.dst_chip}", {self.token_id});{cmt}'
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return (
+            f"hal.channel.send_async @chan{self.channel_id} src={self.src_expr}, "
+            f"bytes={self.bytes_expr}, dst_chip=\"{self.dst_chip}\", token={self.token_id}{cmt}"
+        )
+
+
+class CmdInterChipRecvAsync(Command):
+    """
+    Asynchronous non-blocking pull/receive from an inter-chip interconnect channel.
+    Signals a completion token/semaphore upon reception into destination SRAM/DRAM.
+    """
+    def __init__(
+        self,
+        channel_id: int,
+        dst_expr: str,
+        bytes_expr: str,
+        src_chip: str,
+        token_id: int = 0,
+        comment: str = ""
+    ):
+        self.channel_id = channel_id
+        self.dst_expr = dst_expr
+        self.bytes_expr = bytes_expr
+        self.src_chip = src_chip
+        self.token_id = token_id
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f'{sp}npu_interchip_recv_async({self.channel_id}, {self.dst_expr}, {self.bytes_expr}, "{self.src_chip}", {self.token_id});{cmt}'
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return (
+            f"hal.channel.recv_async @chan{self.channel_id} dst={self.dst_expr}, "
+            f"bytes={self.bytes_expr}, src_chip=\"{self.src_chip}\", token={self.token_id}{cmt}"
+        )
+
+
+class CmdChannelSync(Command):
+    """
+    Hardware flow-control barrier / token wait on an inter-chip channel.
+    Blocks execution until specified transaction token or credit is retired.
+    """
+    def __init__(self, channel_id: int, token_id: int = 0, comment: str = ""):
+        self.channel_id = channel_id
+        self.token_id = token_id
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"{sp}npu_channel_sync({self.channel_id}, {self.token_id});{cmt}"
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"hal.channel.sync @chan{self.channel_id} token={self.token_id}{cmt}"
+
+
+class CmdObjectFifoAcquire(Command):
+    """
+    Object FIFO token acquire for pipelined double/triple-buffering (借鉴 AMD MLIR-AIE).
+    Port: 'Produce' (acquire empty slot to write) or 'Consume' (acquire full slot to read).
+    """
+    def __init__(self, fifo_id: str, port: str = "Consume", num_elements: int = 1, comment: str = ""):
+        self.fifo_id = fifo_id
+        self.port = port
+        self.num_elements = num_elements
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f'{sp}npu_object_fifo_acquire("{self.fifo_id}", "{self.port}", {self.num_elements});{cmt}'
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"aie.objectfifo.acquire @{self.fifo_id}({self.port} : {self.num_elements}){cmt}"
+
+
+class CmdObjectFifoRelease(Command):
+    """
+    Object FIFO token release. Signals the other side of the FIFO that buffer is ready/consumed.
+    """
+    def __init__(self, fifo_id: str, port: str = "Produce", num_elements: int = 1, comment: str = ""):
+        self.fifo_id = fifo_id
+        self.port = port
+        self.num_elements = num_elements
+        self.comment = comment
+
+    def to_c(self, indent: int = 2) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f'{sp}npu_object_fifo_release("{self.fifo_id}", "{self.port}", {self.num_elements});{cmt}'
+
+    def to_ir(self) -> str:
+        cmt = f" // {self.comment}" if self.comment else ""
+        return f"aie.objectfifo.release @{self.fifo_id}({self.port} : {self.num_elements}){cmt}"
+
+
 class CmdCustom0Op(Command):
     """Encapsulates a RISC-V Custom-0 (opcode 0x0B) hardware coprocessor instruction."""
     def __init__(self, funct3: int, funct7: int, rd: str, rs1: str, rs2: str, comment: str = ""):
@@ -141,6 +306,9 @@ class CommandModule:
         lines.append("}")
         return "\n".join(lines)
 
+    def to_c(self) -> str:
+        return self.emit_c_code()
+
     def emit_c_code(self) -> str:
         lines: List[str] = []
         lines.append("// ============================================================================")
@@ -196,8 +364,32 @@ static inline void npu_silu_mul_tile(float* out, const float* gate, const float*
 static inline void npu_rope_tile(float* out, const float* in, const float* cos_tab, const float* sin_tab, int tokens, int dim) {
     asm volatile (".insn r 0x0b, 0, 6, %0, %1, %2\\n" : : "r"(out), "r"(in), "r"(cos_tab) : "memory");
 }
+static inline void npu_channel_alloc(int chan, int depth, size_t slot_bytes) {
+    asm volatile (".insn r 0x0b, 1, 0, x0, %0, %1\\n" : : "r"((unsigned long)chan), "r"(slot_bytes) : "memory");
+}
+static inline void npu_interchip_send_async(int chan, const void* src, size_t bytes, const char* dst_chip, int token) {
+    asm volatile (".insn r 0x0b, 1, 1, x0, %0, %1\\n" : : "r"(src), "r"(bytes) : "memory");
+}
+static inline void npu_interchip_recv_async(int chan, void* dst, size_t bytes, const char* src_chip, int token) {
+    asm volatile (".insn r 0x0b, 1, 2, x0, %0, %1\\n" : : "r"(dst), "r"(bytes) : "memory");
+}
+static inline void npu_channel_sync(int chan, int token) {
+    asm volatile (".insn i 0x0b, 2, x0, x0, 0\\n" : : : "memory");
+}
+static inline void npu_object_fifo_acquire(const char* id, const char* port, int num) {
+    asm volatile (".insn i 0x0b, 3, x0, x0, 0\\n" : : : "memory");
+}
+static inline void npu_object_fifo_release(const char* id, const char* port, int num) {
+    asm volatile (".insn i 0x0b, 4, x0, x0, 0\\n" : : : "memory");
+}
 #else
 // C Host Emulation Reference
+static inline void npu_channel_alloc(int chan, int depth, size_t slot_bytes) {}
+static inline void npu_interchip_send_async(int chan, const void* src, size_t bytes, const char* dst_chip, int token) {}
+static inline void npu_interchip_recv_async(int chan, void* dst, size_t bytes, const char* src_chip, int token) {}
+static inline void npu_channel_sync(int chan, int token) {}
+static inline void npu_object_fifo_acquire(const char* id, const char* port, int num) {}
+static inline void npu_object_fifo_release(const char* id, const char* port, int num) {}
 static inline void npu_dma_async(void* dst, const void* src, size_t bytes) {
     memcpy(dst, src, bytes);
 }
