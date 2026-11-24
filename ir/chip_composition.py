@@ -41,6 +41,89 @@ class InterconnectType(Enum):
     ETHERNET_SCALE_UP = "ethernet_scale_up" # Scale-up optical/copper interconnect (25~50 GB/s)
 
 
+class TransferStrategy(Enum):
+    """Compiler data movement scheduling strategy based on interconnect protocol."""
+    FINE_GRAINED_STREAMING = "fine_grained_streaming"  # Low latency, tile-by-tile double-buffered (UCIe / TSV)
+    COARSE_BULK_PREFETCH = "coarse_bulk_prefetch"      # High latency, bulk batch prefetch (CXL / PCIe)
+    LOCAL_ZERO_COPY = "local_zero_copy"                # On-chip SRAM / localized unified access
+
+
+@dataclass
+class InterconnectProtocolProfile:
+    """Protocol characteristics and compiler scheduling constraints for an interconnect type."""
+    link_type: InterconnectType
+    supports_fine_grained_streaming: bool
+    optimal_chunk_bytes: int
+    protocol_overhead_cycles: int
+    is_coherent: bool
+    allows_cross_link_multicast: bool
+    description: str
+
+
+def get_protocol_profile(link_type: InterconnectType) -> InterconnectProtocolProfile:
+    """Returns protocol characteristics and compiler scheduling constraints."""
+    if link_type == InterconnectType.DIRECT_TSV:
+        return InterconnectProtocolProfile(
+            link_type=link_type,
+            supports_fine_grained_streaming=True,
+            optimal_chunk_bytes=1024,
+            protocol_overhead_cycles=2,
+            is_coherent=True,
+            allows_cross_link_multicast=True,
+            description="3D TSV vertical stacking (<5ns, TB/s/mm): optimal for 1KB-4KB fine streaming."
+        )
+    elif link_type == InterconnectType.UCIE_ADVANCED:
+        return InterconnectProtocolProfile(
+            link_type=link_type,
+            supports_fine_grained_streaming=True,
+            optimal_chunk_bytes=4096,
+            protocol_overhead_cycles=8,
+            is_coherent=False,
+            allows_cross_link_multicast=True,
+            description="2.5D UCIe Die-to-Die (512-1024 GB/s, <10ns): optimal for 4KB-16KB tile streaming."
+        )
+    elif link_type == InterconnectType.NVLINK_C2C:
+        return InterconnectProtocolProfile(
+            link_type=link_type,
+            supports_fine_grained_streaming=True,
+            optimal_chunk_bytes=16384,
+            protocol_overhead_cycles=20,
+            is_coherent=True,
+            allows_cross_link_multicast=True,
+            description="Board-level NVLink-C2C (~900 GB/s, 30-50ns): coherent tile-level or bulk transfer."
+        )
+    elif link_type == InterconnectType.CXL_3_0_PCIE:
+        return InterconnectProtocolProfile(
+            link_type=link_type,
+            supports_fine_grained_streaming=False,
+            optimal_chunk_bytes=65536,  # 64KB+ bulk chunks
+            protocol_overhead_cycles=80,
+            is_coherent=True,
+            allows_cross_link_multicast=False,
+            description="CXL.mem / PCIe Gen6 (64 GB/s, 80-150ns): high latency requires 64KB+ coarse bulk prefetch."
+        )
+    elif link_type == InterconnectType.NOC_2D_MESH:
+        return InterconnectProtocolProfile(
+            link_type=link_type,
+            supports_fine_grained_streaming=True,
+            optimal_chunk_bytes=2048,
+            protocol_overhead_cycles=4,
+            is_coherent=True,
+            allows_cross_link_multicast=True,
+            description="On-die 2D Mesh NoC (256-512 GB/s, 5-15ns): fine-grained packet-switched routing."
+        )
+    else:
+        return InterconnectProtocolProfile(
+            link_type=link_type,
+            supports_fine_grained_streaming=False,
+            optimal_chunk_bytes=131072,
+            protocol_overhead_cycles=500,
+            is_coherent=False,
+            allows_cross_link_multicast=False,
+            description="Scale-up optical/copper interconnect (microsecond latency): large chunk bulk batching."
+        )
+
+
 class ChipRole(Enum):
     """Primary operational role of a chip/die in the composition."""
     HOST_CONTROLLER = "host_controller"         # General CPU control plane & orchestration
@@ -400,6 +483,108 @@ class ChipComposition:
                     return (chip.id, eng)
 
         raise RuntimeError(f"No suitable compute engine found for operator '{op_type}' in composition!")
+
+    def analyze_interconnect_route(self, route: InterChipDataRoute) -> Dict[str, Any]:
+        """
+        Compiler Interconnect Protocol Analysis:
+        Inspects all links traversed by route to identify:
+        1. Whether it crosses CXL (high latency, needs bulk chunking) vs UCIe (low latency, streaming).
+        2. Dominant link type and bottleneck link.
+        3. Recommended transfer strategy (FINE_GRAINED_STREAMING vs COARSE_BULK_PREFETCH).
+        4. Optimal chunk/tile size.
+        """
+        if not route.hops or all(h.link is None for h in route.hops):
+            return {
+                "is_inter_chip": False,
+                "strategy": TransferStrategy.LOCAL_ZERO_COPY,
+                "optimal_chunk_bytes": 4096,
+                "dominant_link_type": None,
+                "has_cxl": False,
+                "has_ucie": False,
+                "has_tsv": False
+            }
+
+        has_cxl = any(h.link and h.link.link_type == InterconnectType.CXL_3_0_PCIE for h in route.hops)
+        has_ucie = any(h.link and h.link.link_type == InterconnectType.UCIE_ADVANCED for h in route.hops)
+        has_tsv = any(h.link and h.link.link_type == InterconnectType.DIRECT_TSV for h in route.hops)
+
+        # If any hop traverses CXL, the whole route inherits the coarse-grained bulk constraint
+        if has_cxl:
+            strategy = TransferStrategy.COARSE_BULK_PREFETCH
+            optimal_chunk = 65536  # 64KB+ bulk chunks
+            dominant = InterconnectType.CXL_3_0_PCIE
+        elif has_ucie:
+            strategy = TransferStrategy.FINE_GRAINED_STREAMING
+            optimal_chunk = 4096   # 4KB tiles
+            dominant = InterconnectType.UCIE_ADVANCED
+        elif has_tsv:
+            strategy = TransferStrategy.FINE_GRAINED_STREAMING
+            optimal_chunk = 1024   # 1KB fine tiles
+            dominant = InterconnectType.DIRECT_TSV
+        else:
+            strategy = TransferStrategy.COARSE_BULK_PREFETCH
+            optimal_chunk = 32768
+            dominant = route.hops[0].link.link_type if route.hops[0].link else None
+
+        return {
+            "is_inter_chip": True,
+            "strategy": strategy,
+            "optimal_chunk_bytes": optimal_chunk,
+            "dominant_link_type": dominant,
+            "has_cxl": has_cxl,
+            "has_ucie": has_ucie,
+            "has_tsv": has_tsv
+        }
+
+    def analyze_cross_chip_offload_viability(
+        self,
+        op_type: str,
+        tensor_bytes: int,
+        route: InterChipDataRoute,
+        target_engine_throughput_cycles_elem: float = 0.05,
+        local_engine_throughput_cycles_elem: float = 0.5
+    ) -> Tuple[bool, str, float]:
+        """
+        Analyzes whether offloading an operator across the interconnect route is profitable:
+        Compares:
+        - Transfer cycles over the specific interconnect route (UCIe vs CXL)
+        - Local compute cycles vs Remote compute cycles
+        Returns: (is_profitable, detailed_verdict, communication_to_compute_ratio)
+        """
+        interconnect_info = self.analyze_interconnect_route(route)
+        num_elems = max(1, tensor_bytes // 4)
+
+        local_cycles = int(num_elems * local_engine_throughput_cycles_elem)
+        remote_cycles = int(num_elems * target_engine_throughput_cycles_elem)
+        transfer_cycles = route.estimate_total_cycles(tensor_bytes)
+
+        total_remote_cycles = transfer_cycles + remote_cycles
+        ccr = transfer_cycles / max(1.0, float(remote_cycles))
+
+        # Check if CXL link makes fine-grained offload counterproductive
+        if interconnect_info["has_cxl"]:
+            if ccr > 1.0 or total_remote_cycles >= local_cycles:
+                return (
+                    False,
+                    f"REJECTED: Route crosses high-latency CXL link ({route.total_startup_cycles} startup cyc, BW={route.bottleneck_bandwidth}B/cyc). "
+                    f"Transfer ({transfer_cycles} cyc) exceeds local compute ({local_cycles} cyc). CCR={ccr:.2f} > 1.0. Keep local!",
+                    ccr
+                )
+
+        if total_remote_cycles < local_cycles:
+            link_name = interconnect_info["dominant_link_type"].value if interconnect_info["dominant_link_type"] else "internal"
+            return (
+                True,
+                f"APPROVED: Offload across '{link_name}' is profitable (Speedup={local_cycles / total_remote_cycles:.2f}x). "
+                f"Transfer={transfer_cycles} cyc, Compute={remote_cycles} cyc, CCR={ccr:.2f}.",
+                ccr
+            )
+        else:
+            return (
+                False,
+                f"REJECTED: Remote execution ({total_remote_cycles} cyc) slower than local execution ({local_cycles} cyc). CCR={ccr:.2f}.",
+                ccr
+            )
 
     def summary(self) -> str:
         """Emits an architectural summary of the multi-chip composition."""

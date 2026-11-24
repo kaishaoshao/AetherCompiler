@@ -28,6 +28,9 @@ from .target_desc import (
 )
 from .chip_composition import (
     InterconnectType,
+    TransferStrategy,
+    InterconnectProtocolProfile,
+    get_protocol_profile,
     ChipRole,
     InterconnectLink,
     Chiplet,
@@ -47,6 +50,7 @@ __all__ = [
     "SymbolicConstraintSolver", "sym_var", "sym_const",
     "MemorySpace", "MemoryTier", "MemoryHierarchy", "DataMoverType", "DataTransferDescriptor",
     "EngineKind", "ComputeEngine", "TargetArchitecture",
-    "InterconnectType", "ChipRole", "InterconnectLink", "Chiplet", "DataPathHop",
+    "InterconnectType", "TransferStrategy", "InterconnectProtocolProfile", "get_protocol_profile",
+    "ChipRole", "InterconnectLink", "Chiplet", "DataPathHop",
     "InterChipDataRoute", "ChipComposition"
 ]

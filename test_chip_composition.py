@@ -224,6 +224,69 @@ def test_6_capability_driven_multi_chip_operator_dispatching():
     print("  [OK] Multi-chip capability-driven operator dispatching verified successfully!")
 
 
+def test_7_compiler_analysis_ucie_vs_cxl():
+    print("\n" + "=" * 70)
+    print(" [Phase 7/7] Testing Compiler Analysis: UCIe vs CXL Protocol Scheduling...")
+    print("=" * 70)
+
+    comp = ChipComposition.create_modular_llm_superchip_composition()
+    from ir import TransferStrategy
+
+    # 1. Analyze Route over UCIe (NPU Scratchpad <==> Dedicated ASIC Die)
+    route_ucie = comp.find_shortest_data_path("NPU_Local_Scratchpad_SRAM", "NPU_Local_Scratchpad_SRAM") # intra or across
+    # Across link: NPU L2 to Host CPU (over UCIe)
+    route_ucie = comp.find_shortest_data_path("NPU_L2_Cluster_SRAM", "Host_LPDDR5X_Pool")
+    analysis_ucie = comp.analyze_interconnect_route(route_ucie)
+
+    print(f"  [UCIe Link Analysis]:")
+    print(f"    * Dominant Protocol : {analysis_ucie['dominant_link_type'].value}")
+    print(f"    * Transfer Strategy : {analysis_ucie['strategy'].value}")
+    print(f"    * Optimal Tile Size : {analysis_ucie['optimal_chunk_bytes']} Bytes (Fine-Grained Streaming)")
+    assert analysis_ucie["has_ucie"] and not analysis_ucie["has_cxl"]
+    assert analysis_ucie["strategy"] == TransferStrategy.FINE_GRAINED_STREAMING
+    assert analysis_ucie["optimal_chunk_bytes"] == 4096
+
+    # 2. Analyze Route over CXL 3.0 (NPU L2 <==> HBF Flash Storage Die)
+    route_cxl = comp.find_shortest_data_path("NPU_L2_Cluster_SRAM", "HBF_Flash_Pool_Tier")
+    analysis_cxl = comp.analyze_interconnect_route(route_cxl)
+
+    print(f"  [CXL Link Analysis]:")
+    print(f"    * Dominant Protocol : {analysis_cxl['dominant_link_type'].value}")
+    print(f"    * Transfer Strategy : {analysis_cxl['strategy'].value}")
+    print(f"    * Optimal Tile Size : {analysis_cxl['optimal_chunk_bytes']} Bytes (Coarse-Grained Bulk Prefetch)")
+    assert analysis_cxl["has_cxl"]
+    assert analysis_cxl["strategy"] == TransferStrategy.COARSE_BULK_PREFETCH
+    assert analysis_cxl["optimal_chunk_bytes"] == 65536
+
+    # 3. Offload Viability Analysis: RMSNorm (4096 floats = 16KB)
+    # Case A: Over UCIe to Dedicated ASIC
+    viable_ucie, verdict_ucie, ccr_ucie = comp.analyze_cross_chip_offload_viability(
+        op_type="rmsnorm",
+        tensor_bytes=16384,
+        route=route_ucie,
+        target_engine_throughput_cycles_elem=0.05,
+        local_engine_throughput_cycles_elem=0.5
+    )
+    print(f"\n  [UCIe Offload Decision]: Viable={viable_ucie}, CCR={ccr_ucie:.2f}")
+    print(f"    Verdict: {verdict_ucie}")
+    assert viable_ucie is True
+
+    # Case B: Over CXL to Remote Engine
+    viable_cxl, verdict_cxl, ccr_cxl = comp.analyze_cross_chip_offload_viability(
+        op_type="rmsnorm",
+        tensor_bytes=16384,
+        route=route_cxl,
+        target_engine_throughput_cycles_elem=0.05,
+        local_engine_throughput_cycles_elem=0.5
+    )
+    print(f"\n  [CXL Offload Decision]: Viable={viable_cxl}, CCR={ccr_cxl:.2f}")
+    print(f"    Verdict: {verdict_cxl}")
+    assert viable_cxl is False
+    assert "REJECTED" in verdict_cxl
+
+    print("\n  [OK] Compiler explicitly analyzes UCIe vs CXL and changes scheduling & partition decisions!")
+
+
 def main():
     print("=" * 80)
     print("  ZEN-NPU COMPILER: DECLARATIVE CHIP COMPOSITION & INTER-CHIP ROUTING TEST")
@@ -234,8 +297,9 @@ def main():
     test_4_transfer_cycle_estimation_across_chip_boundaries()
     test_5_global_multi_chip_tensor_placement()
     test_6_capability_driven_multi_chip_operator_dispatching()
+    test_7_compiler_analysis_ucie_vs_cxl()
     print("=" * 80)
-    print(" >>> ALL 6/6 CHIP COMPOSITION & ROUTING PHASES PASSED WITH 100% SUCCESS! <<<")
+    print(" >>> ALL 7/7 CHIP COMPOSITION & ROUTING PHASES PASSED WITH 100% SUCCESS! <<<")
     print("=" * 80)
 
 
