@@ -5,6 +5,9 @@ from .tvm_pipeline import TilingAndPipelinePass, TilingSchedule
 from .weight_prepack import ConstantFoldingAndPrepackPass
 from .horizontal_fusion import HorizontalFusionPass
 from .dce import DeadCodeEliminationPass
+from .canonicalize import CanonicalizePass
+from .cse import CommonSubexpressionEliminationPass
+from .layout_transform import LayoutTransformPass
 
 __all__ = [
     "OperatorFusionPass",
@@ -18,5 +21,8 @@ __all__ = [
     "TilingSchedule",
     "ConstantFoldingAndPrepackPass",
     "HorizontalFusionPass",
-    "DeadCodeEliminationPass"
+    "DeadCodeEliminationPass",
+    "CanonicalizePass",
+    "CommonSubexpressionEliminationPass",
+    "LayoutTransformPass"
 ]

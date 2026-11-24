@@ -414,5 +414,45 @@ def register_standard_ops():
         ]
     ))
 
+    # Cast Op (Mixed-precision type conversion)
+    OpRegistry.register(OpDefinition(
+        name="cast",
+        traits={OpTrait.ELEMENTWISE},
+        infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
+        eval_ref_fn=lambda inputs, attrs: inputs,
+        emit_c_fn=lambda node, ctx: [
+            f"        // Cast {node.inputs[0].name} ({node.inputs[0].dtype}) -> {node.outputs[0].name} ({node.outputs[0].dtype})",
+            f"        convert_precision((void*)(dram_base + {node.inputs[0].allocated_offset}), (void*)(dram_base + {node.outputs[0].allocated_offset}), {node.inputs[0].num_elements});"
+        ]
+    ))
+
+    # Pack Op (Hardware-native 4D blocked layout)
+    OpRegistry.register(OpDefinition(
+        name="pack",
+        traits={OpTrait.DATA_VIEW},
+        infer_shape_fn=lambda in_shapes, attrs: [
+            (
+                in_shapes[0][0] // attrs.get("block_size", (16, 16))[0],
+                in_shapes[0][1] // attrs.get("block_size", (16, 16))[1],
+                attrs.get("block_size", (16, 16))[0],
+                attrs.get("block_size", (16, 16))[1]
+            )
+        ],
+        eval_ref_fn=lambda inputs, attrs: inputs
+    ))
+
+    # Unpack Op
+    OpRegistry.register(OpDefinition(
+        name="unpack",
+        traits={OpTrait.DATA_VIEW},
+        infer_shape_fn=lambda in_shapes, attrs: [
+            attrs.get(
+                "original_shape",
+                (in_shapes[0][0] * in_shapes[0][2], in_shapes[0][1] * in_shapes[0][3])
+            )
+        ],
+        eval_ref_fn=lambda inputs, attrs: inputs
+    ))
+
 # Automatically initialize standard ops upon import
 register_standard_ops()

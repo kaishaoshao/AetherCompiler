@@ -155,3 +155,36 @@ def rope(x: Tensor, cos: Tensor, sin: Tensor, name: str = "") -> Tuple[OpNode, T
     out_tensor = Tensor(out_name, x.shape, x.dtype)
     node = OpNode("rope", [x, cos, sin], [out_tensor], name=name or out_name)
     return node, out_tensor
+
+def cast(x: Tensor, target_dtype: Any, name: str = "") -> Tuple[OpNode, Tensor]:
+    """
+    Casts tensor x to target_dtype (e.g. float32 -> float16 or float16 -> int8).
+    """
+    from .types import to_dtype
+    target_d = to_dtype(target_dtype)
+    out_name = f"{name}_out" if name else f"cast_{target_d.name}_{id(x)%100}"
+    out_tensor = Tensor(out_name, x.shape, target_d.name)
+    node = OpNode("cast", [x], [out_tensor], name=name or out_name, attrs={"to_dtype": target_d.name})
+    return node, out_tensor
+
+def pack(x: Tensor, block_size: Tuple[int, int] = (16, 16), name: str = "") -> Tuple[OpNode, Tensor]:
+    """
+    Hardware-native blocked layout transformation (Linalg.pack / AlterOpLayout).
+    Packs 2D tensor [M, K] into 4D tensor [M // block_m, K // block_k, block_m, block_k].
+    """
+    bm, bk = block_size
+    M, K = x.shape[0], x.shape[1]
+    out_shape = (M // bm, K // bk, bm, bk)
+    out_name = f"{name}_out" if name else f"pack_{bm}x{bk}_{id(x)%100}"
+    out_tensor = Tensor(out_name, out_shape, x.dtype)
+    node = OpNode("pack", [x], [out_tensor], name=name or out_name, attrs={"block_size": block_size})
+    return node, out_tensor
+
+def unpack(x: Tensor, original_shape: Tuple[int, int], block_size: Tuple[int, int] = (16, 16), name: str = "") -> Tuple[OpNode, Tensor]:
+    """
+    Unpacks 4D blocked tensor back into 2D tensor.
+    """
+    out_name = f"{name}_out" if name else f"unpack_{id(x)%100}"
+    out_tensor = Tensor(out_name, original_shape, x.dtype)
+    node = OpNode("unpack", [x], [out_tensor], name=name or out_name, attrs={"original_shape": original_shape, "block_size": block_size})
+    return node, out_tensor

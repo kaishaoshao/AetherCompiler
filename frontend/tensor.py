@@ -11,7 +11,7 @@ Core Architectural Innovations (MAX 核心灵魂):
    - Single compilation for dynamic sequence lengths (Prefill vs Decode).
 """
 
-from typing import Tuple, Union, Optional, Dict, List
+from typing import Tuple, Union, Optional, Dict, List, Any
 import math
 from ir.sym_int import (
     SymExpr, SymVar, SymConst, Constraint,
@@ -107,13 +107,15 @@ class Tensor:
         self,
         name: str,
         shape: Tuple[DimType, ...],
-        dtype: str = "float32",
+        dtype: Union[str, Any] = "float32",
         layout: Optional[StridedLayout] = None
     ):
+        from .types import to_dtype
         self.name = name
         self.shape: Tuple[DimType, ...] = shape
-        self.dtype = dtype
-        self.element_size = 4 if dtype in ("float32", "int32") else 2
+        d_obj = to_dtype(dtype)
+        self.dtype: str = d_obj.name
+        self.element_size = max(1, int(math.ceil(d_obj.bytes)))
         self.allocated_offset: Optional[int] = None  # Global DRAM/HBM byte offset
         self.initial_value: Optional[List[float]] = None
         self._solver: Optional[SymbolicConstraintSolver] = None
