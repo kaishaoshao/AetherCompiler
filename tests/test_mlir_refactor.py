@@ -8,14 +8,20 @@ Tests:
 5. Progressive Lowering Pass Pipeline: Zen -> Linalg -> One-Shot Bufferize (MemRef)
 """
 
+import sys
 import os
-from frontend import Graph, Tensor, ops, FLOAT16, FLOAT32
-from mlir.python import (
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+from compiler.frontend import Graph, Tensor, ops, FLOAT16, FLOAT32
+from compiler.mlir.python import (
     ModuleOp, FuncOp, Operation, Value,
     TensorType, MemRefType, F32, F16, BF16,
     GraphToMLIRBridge, ZenToLinalgLoweringPass, OneShotBufferizePass
 )
-from mlir.python.dialects import zen, flow, linalg, memref
+from compiler.mlir.python.dialects import zen, flow, linalg, memref
 
 
 def test_phase_1_tablegen_specifications():
@@ -24,13 +30,13 @@ def test_phase_1_tablegen_specifications():
     print("=" * 70)
 
     td_files = [
-        "mlir/include/zen/ZenDialect.td",
-        "mlir/include/zen/ZenOps.td",
-        "mlir/include/zen/ZenFlowOps.td",
-        "mlir/include/zen/ZenNPUOps.td",
-        "mlir/include/zen/ZenPasses.td",
-        "mlir/CMakeLists.txt",
-        "mlir/tools/zen-opt/zen-opt.cpp"
+        os.path.join(REPO_ROOT, "compiler/mlir/include/zen/ZenDialect.td"),
+        os.path.join(REPO_ROOT, "compiler/mlir/include/zen/ZenOps.td"),
+        os.path.join(REPO_ROOT, "compiler/mlir/include/zen/ZenFlowOps.td"),
+        os.path.join(REPO_ROOT, "compiler/mlir/include/zen/ZenNPUOps.td"),
+        os.path.join(REPO_ROOT, "compiler/mlir/include/zen/ZenPasses.td"),
+        os.path.join(REPO_ROOT, "compiler/mlir/CMakeLists.txt"),
+        os.path.join(REPO_ROOT, "compiler/mlir/tools/zen-opt/zen-opt.cpp")
     ]
     for path in td_files:
         assert os.path.exists(path), f"Missing required MLIR file: {path}"

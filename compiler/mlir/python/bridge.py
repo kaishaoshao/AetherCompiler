@@ -12,7 +12,7 @@ Connects TinyGraphCompiler frontend and middle-end directly to standard MLIR:
 """
 
 from typing import Dict, List, Optional, Tuple, Any
-from frontend import Graph, OpNode, Tensor
+from compiler.frontend import Graph, OpNode, Tensor
 from .ir import (
     ModuleOp, FuncOp, Operation, Value, Block, Region,
     TensorType, MemRefType, MLIRType, parse_type, F32, F16, BF16, I32
