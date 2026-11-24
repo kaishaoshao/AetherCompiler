@@ -30,29 +30,26 @@ from .pass_manager import (
 # Driver
 from .driver import (
     AetherCompiler,
-    AetherGraphCompiler,
-    LLMCompiler,
-    LLMGraphCompiler,
-    Compiler,
-    ZenNPUCompiler,
     CompiledArtifact
 )
 
 # Convenience re-exports of primary symbols
-from .frontend import Graph, Tensor, ops, DType, FLOAT32, FLOAT16, BFLOAT16, INT8, INT4
+from .frontend import Graph, Tensor, ops, DType, FLOAT32, FLOAT16, BFLOAT16, INT8, INT4, ShapeInferencePass, ShapeInferenceError
 from .ir import (
     ChipComposition, MemorySpace, MemoryTier, InterconnectType,
     sym_var, sym_const, SymExpr, SymbolicConstraintSolver
+)
+from .midend import (
+    GraphColoringMemoryPlannerPass,
+    ConstantFoldingPass,
+    WeightQuantizationPass,
+    TensorParallelPass,
+    TilingAutotunerPass
 )
 
 __all__ = [
     # Top-level driver & artifacts
     "AetherCompiler",
-    "AetherGraphCompiler",
-    "LLMCompiler",
-    "LLMGraphCompiler",
-    "Compiler",
-    "ZenNPUCompiler",
     "CompiledArtifact",
 
     # Pass management
@@ -62,6 +59,15 @@ __all__ = [
     "PassInfo",
     "register_pass",
     "parse_pipeline",
+
+    # Key Passes
+    "GraphColoringMemoryPlannerPass",
+    "ConstantFoldingPass",
+    "WeightQuantizationPass",
+    "TensorParallelPass",
+    "TilingAutotunerPass",
+    "ShapeInferencePass",
+    "ShapeInferenceError",
 
     # Subpackages
     "frontend",

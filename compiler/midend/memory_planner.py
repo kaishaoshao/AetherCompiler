@@ -49,22 +49,25 @@ class MemoryPlanningPass:
                 out_t = node.outputs[0]
                 view_aliases[out_t.name] = in_t.name
 
-        # Inputs are live from step 0
+        # Inputs are live from step 0 through the end (preserving weights and user buffers)
+        final_step = len(graph.nodes) + 1
         for t in graph.inputs:
             live_start[t.name] = 0
+            live_end[t.name] = final_step
 
         # Outputs must remain live until the very end
-        final_step = len(graph.nodes) + 1
         for t in graph.outputs:
             live_end[t.name] = final_step
 
         for step, node in enumerate(graph.nodes, start=1):
             for t in node.inputs:
-                live_end[t.name] = max(live_end.get(t.name, 0), step)
+                if t.name not in live_end or live_end[t.name] != final_step:
+                    live_end[t.name] = max(live_end.get(t.name, 0), step + 1)
             for t in node.outputs:
                 if t.name not in live_start:
                     live_start[t.name] = step
-                live_end[t.name] = max(live_end.get(t.name, 0), step)
+                if t.name not in live_end:
+                    live_end[t.name] = max(live_end.get(t.name, 0), step + 1)
 
         naive_total = sum(t.size_in_bytes for t in tensors)
 

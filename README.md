@@ -117,6 +117,7 @@ AetherCompiler/
 │   │   ├── fx_importer.py            # PyTorch 2.0 Exported FX Graph 摄入桥梁
 │   │   ├── mlir_parser.py            # MLIR Level 1 Graph Dialect 文本双向解析器
 │   │   ├── registry.py               # 算子全局注册器
+│   │   ├── shape_inference.py        # 静态形状契约验证与动态符号推导 Pass (shape-inference)
 │   │   └── types.py                  # DType 与基础数据结构
 │   ├── ir/                           # 多级中间表示与硬件抽象
 │   │   ├── sym_int.py                # SymInt 动态符号约束求解器 (Presburger 算术、区间推断、定理证明)
@@ -130,13 +131,16 @@ AetherCompiler/
 │   │   ├── canonicalize.py           # 规范化代数化简 Pass (消除冗余 Cast/Reshape/Squeeze)
 │   │   ├── cse.py                    # 全局公共表达式消除 (CSE Pass)
 │   │   ├── layout_transform.py       # 张量布局自动转置与对齐优化 Pass
-│   │   ├── quantization.py           # 仿射量化与低精度 INT8/FP8 降阶 Pass
-│   │   ├── distributed.py            # TP/PP 张量与流水线并行切分 Pass
+│   │   ├── constant_folding.py       # 全图静态子图编译期常量求值折叠 Pass (constant-folding)
+│   │   ├── quantization.py           # INT4/INT8 权重量化与 Dequant-GEMM 融合 Pass (quantize)
+│   │   ├── distributed.py            # Megatron/MAX 张量并行与 AllReduce 插入 Pass (tensor-parallel)
 │   │   ├── weight_prepack.py         # 常量折叠与权重 4D 块化重排 (const-fold)
 │   │   ├── horizontal_fusion.py      # 水平算子融合 (h-fusion: QKV Projection 融合)
 │   │   ├── fusion.py                 # 模式垂直算子融合 (fusion: FlashAttention, SwiGLU, GeGLU)
 │   │   ├── dce.py                    # 逆向可达性死代码消除 (dce)
 │   │   ├── memory_planner.py         # MAX MGP 全局动态内存规划 (memory-planning)
+│   │   ├── graph_coloring.py         # Chaitin-Briggs 图着色内存复用与 Bank 无冲突布局 (graph-coloring)
+│   │   ├── autotuner.py              # 微架构代价模型与 3D Tiling 搜索空间探索 (autotune-tiling)
 │   │   ├── flow_dispatch.py          # IREE Flow 工作组分派与参数槽位绑定 (flow-dispatch)
 │   │   └── tvm_pipeline.py           # TVM TensorIR SRAM 分块与双缓冲软件流水 (tiling)
 │   ├── backend/                      # 编译器后端机器代码发射
@@ -149,6 +153,7 @@ AetherCompiler/
 │   └── pass_manager.py               # PassManager, PassRegistry, @register_pass 动态流水线
 ├── runtime/                          # 独立运行时执行引擎与硬件微架构 Profiler
 │   ├── simulator.py                  # 多核 NPU 虚拟硬件执行器 (DRAM/SRAM 模拟，验证 Bit-Exact)
+│   ├── native_jit.py                 # 原生 C 动态 JIT 编译与 ctypes 零拷贝内存执行引擎
 │   ├── profiler.py                   # 周期级微架构 Profiler (硬件周期、DMA 停顿、重叠率与 FLOP/Byte)
 │   └── hal/                          # 硬件抽象层 (Timeline Semaphores, Command Buffer, Queue)
 ├── models/                           # 真实大模型拓扑库

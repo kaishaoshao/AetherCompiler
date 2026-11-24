@@ -1,5 +1,5 @@
 """
-Compiler Infrastructure: Unified End-to-End Compiler Driver (ZenNPUCompiler).
+Compiler Infrastructure: Unified End-to-End Compiler Driver (AetherCompiler).
 
 Presents a cohesive, production-grade compiler entry point:
 - Configures target microarchitecture (Cores, Scratchpad SRAM, Clock Frequency)
@@ -20,7 +20,7 @@ from .pass_manager import PassManager, PassRegistry
 
 class CompiledArtifact:
     """
-    Self-contained executable artifact produced by ZenNPUCompiler.
+    Self-contained executable artifact produced by AetherCompiler.
     Encapsulates all abstraction levels: Fused Graph, Flow, TIR, HAL, and Machine Assembly.
     Supports dynamic SymInt execution via resolve_shapes!
     """
@@ -106,6 +106,38 @@ class CompiledArtifact:
                 sim.write_tensor(inp, inputs[inp.name])
         sim.execute_graph(self.fused_graph)
         return [sim.read_tensor(out) for out in self.fused_graph.outputs]
+
+    def execute_native(self, inputs: Dict[str, Any]) -> List[Any]:
+        """
+        Executes compiled artifact via Native C JIT compiler (gcc/clang + ctypes).
+        Directly executes freestanding C code in native machine code!
+        """
+        from runtime.native_jit import NativeCJitExecutor
+        jit = NativeCJitExecutor(self.c_source, self.planned_bytes)
+        if not jit.is_available:
+            raise RuntimeError("Native C JIT unavailable (host compiler gcc or clang failed).")
+
+        tensor_offsets = {t.name: getattr(t, "allocated_offset", 0) for t in self.fused_graph.get_all_tensors()}
+        out_names = [out.name for out in self.fused_graph.outputs]
+        out_shapes = {out.name: tuple(out.shape) for out in self.fused_graph.outputs}
+
+        flat_inputs = {}
+        for k, v in inputs.items():
+            if hasattr(v, "flatten"):
+                flat_inputs[k] = [float(x) for x in v.flatten()]
+            elif isinstance(v, list):
+                flat_vals = []
+                def _flat_list(lst):
+                    for el in lst:
+                        if isinstance(el, list):
+                            _flat_list(el)
+                        else:
+                            flat_vals.append(float(el))
+                _flat_list(v)
+                flat_inputs[k] = flat_vals
+
+        res_dict = jit.execute(flat_inputs, tensor_offsets, out_names, out_shapes, num_cores=self.num_cores)
+        return [res_dict[name] for name in out_names]
 
     def execute_dynamic_simulation(self, inputs: Dict[str, Any], dynamic_bindings: Dict[str, int]) -> List[Any]:
         """
@@ -265,11 +297,3 @@ class AetherCompiler:
             num_cores=self.num_cores,
             solver=active_solver
         )
-
-
-# Ergonomic & Backward-Compatible Aliases
-AetherGraphCompiler = AetherCompiler
-LLMCompiler = AetherCompiler
-LLMGraphCompiler = AetherCompiler
-Compiler = AetherCompiler
-ZenNPUCompiler = AetherCompiler

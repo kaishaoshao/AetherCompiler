@@ -8,6 +8,7 @@ from .profiler import (
     NPUPerformanceProfiler
 )
 from .inference_engine import ZenInferenceEngine, SimpleTokenizer, GenerationResult
+from .native_jit import NativeCJitExecutor
 
 __all__ = [
     "VirtualNPUSimulator",
@@ -21,6 +22,7 @@ __all__ = [
     "ZenInferenceEngine",
     "SimpleTokenizer",
     "GenerationResult",
+    "NativeCJitExecutor",
     "NPUHardwareProfile",
     "PerformanceMetrics",
     "ComparisonReport",

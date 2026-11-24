@@ -46,3 +46,76 @@ class TensorParallelPlanner:
         )
         graph.add_node(node)
         return node, out_tensor
+
+
+from compiler.pass_manager import register_pass
+from typing import Dict, Any
+
+
+@register_pass(
+    name="tensor-parallel",
+    description="Automated Tensor Parallelism (TP) column/row partitioning & explicit AllReduce collective insertion",
+    dialect_stage="graph",
+    aliases=["tp", "tp-split"],
+    options_schema={"world_size": 2}
+)
+class TensorParallelPass:
+    """
+    Applies Megatron-LM / Modular MAX ADR-6 Tensor Parallelism to a computational graph:
+    1. Identifies MatMul operations and pairs (Column-Parallel -> Row-Parallel).
+    2. Tags operations with partition attributes (mesh, device_id, shard_dim).
+    3. Inserts explicit AllReduce collective communication nodes to aggregate partial sum tensors.
+    """
+    def __init__(self, world_size: int = 2):
+        self.world_size = world_size
+        self.planner = TensorParallelPlanner(world_size)
+
+    def run(self, graph: Graph) -> Graph:
+        new_nodes: List[OpNode] = []
+        i = 0
+        nodes = list(graph.nodes)
+
+        while i < len(nodes):
+            node = nodes[i]
+
+            # If node was already tagged (e.g. as row_parallel), keep it
+            if "tp_type" in node.attrs:
+                new_nodes.append(node)
+                i += 1
+                continue
+
+            # Look for consecutive MatMul / Linear pairs (e.g., in MLP or Attention)
+            if node.op_type == "matmul" and len(node.inputs) >= 2:
+                w1 = node.inputs[1]
+                if len(w1.shape) == 2 and w1.shape[1] % self.world_size == 0:
+                    # Column-Parallel Linear (split output features)
+                    node.attrs["tp_type"] = "column_parallel"
+                    node.attrs["world_size"] = self.world_size
+                    node.attrs["shard_dim"] = 1
+                    new_nodes.append(node)
+
+                    # Look ahead for downstream consumers (including through activations)
+                    active_tensors = {node.outputs[0].name}
+                    for candidate in nodes[i+1:]:
+                        if any(inp.name in active_tensors for inp in candidate.inputs):
+                            if candidate.op_type in ("relu", "silu", "gelu", "mul", "add"):
+                                for out in candidate.outputs:
+                                    active_tensors.add(out.name)
+                            elif candidate.op_type == "matmul":
+                                w2 = candidate.inputs[1]
+                                if len(w2.shape) == 2 and w2.shape[0] % self.world_size == 0:
+                                    candidate.attrs["tp_type"] = "row_parallel"
+                                    candidate.attrs["world_size"] = self.world_size
+                                    candidate.attrs["shard_dim"] = 0
+                                    candidate.attrs["needs_allreduce"] = True
+                                break
+
+                    i += 1
+                    continue
+
+            new_nodes.append(node)
+            i += 1
+
+        graph.nodes = new_nodes
+        return graph
+
