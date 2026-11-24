@@ -12,6 +12,11 @@ Quantitatively proves the performance gains of:
 
 import sys
 import os
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 from frontend import Graph, Tensor, ops
 from ir import ChipComposition, TransferStrategy
 from midend.flow_dispatch import FlowDispatchPass
@@ -181,7 +186,8 @@ def run_heterogeneous_performance_comparison():
     print("=" * 88)
 
     # 1. Ingest superchip from YAML
-    superchip = ChipComposition.from_yaml_file("configs/hetero_superchip_example.yaml")
+    yaml_config = os.path.join(REPO_ROOT, "configs", "hetero_superchip_example.yaml")
+    superchip = ChipComposition.from_yaml_file(yaml_config)
     print(f"Memory Tiers    : 3D DRAM (1.5 TB/s, 10ns), CXL Pool (64 GB/s), Core SRAM (1.0 TB/s)")
     print(f"Interconnect    : 2.5D UCIe Die-to-Die (1.0 TB/s, <10ns flit latency)")
 

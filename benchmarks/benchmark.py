@@ -26,7 +26,9 @@ import argparse
 from typing import List, Dict, Any, Tuple
 
 # Local imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 from frontend import Graph, Tensor, StridedLayout, SymbolicDim, ops
 from models import (
@@ -236,7 +238,8 @@ def main():
     parser = argparse.ArgumentParser(description="Zen-NPU Benchmark Runner")
     parser.add_argument("--num-cores", type=int, default=4, help="Number of simulated NPU cores (default: 4)")
     parser.add_argument("--sram-kb", type=int, default=16, help="Scratchpad SRAM capacity in KB (default: 16)")
-    parser.add_argument("--json-out", type=str, default="benchmark_results.json", help="Path to save JSON benchmark output")
+    default_json = os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmark_results.json")
+    parser.add_argument("--json-out", type=str, default=default_json, help="Path to save JSON benchmark output")
     args = parser.parse_args()
 
     compiler = ZenNPUCompiler(

@@ -16,7 +16,9 @@ import sys
 import random
 
 # Ensure local packages are on sys.path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 from ir.sym_int import (
     SymExpr, SymVar, SymConst, Constraint,
