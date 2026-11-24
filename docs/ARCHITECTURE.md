@@ -1,8 +1,23 @@
 # Aether AI Graph Compiler: System Architecture & Design Specification
 
+> 💡 **核心架构指南与 Agent 开发守则**：请参阅权威技术白皮书 **[AETHER_COMPILER_CORE_SKILLS.md](AETHER_COMPILER_CORE_SKILLS.md)** 与项目核心 Skill **[.gemini/skills/aether-compiler/SKILL.md](../.gemini/skills/aether-compiler/SKILL.md)**。
+
 ---
 
-## 1. 设计哲学与宏观全景 (Design Philosophy)
+## 1. 核心定位与三大架构支柱 (Core Philosophy & Pillars)
+
+AetherCompiler (以太编译器) 面向大模型与多 Die 异构超级芯片，坚定贯彻三大设计支柱：
+1. **大模型高层重写前端 (Mojo / MAX Graph 哲学)**：严禁在前端过早打碎大模型复合算子（保持 FlashAttention, RMSNorm, SwiGLU, PagedAttention 宏观语义），提供类似 Mojo 的直观声明式图重写 API。
+2. **存储介质与数据搬运中端 (Storage & Movement as First-Class Citizens)**：将 3D-DRAM (HBM4), CXL 3.0, LPDDR5X, SRAM 等 6 类物理存储介质与 TSV, UCIe, DMA 传输机制显式建模为一等 IR 操作，支持 Dijkstra 多跳路由。
+3. **计算架构解耦与极简位置切分 (Placement & Partitioning)**：计算微架构完全解耦，支持单行声明式语法将算子指派下沉至专用 ASIC、近存 PIM、脉动 NPU 或 Host CPU。
+
+### 双分支演进定位：
+- **`feat/learn`**：黄金原型与算法策源地，纯 Python 高内聚实现，算法透明易验证。
+- **`feat/llvm-mlir`**：工业级生态重构，使用 MLIR 上游 TableGen ODS、PatternRewriter、One-Shot Bufferize 严谨重现 `feat/learn` 的全部能力，而非盲从 IREE 丢失大模型语义。
+
+---
+
+## 2. 设计哲学与宏观全景 (Design Philosophy)
 
 Aether (TinyGC-RISCV) 是一个面向新一代异构计算芯片（RISC-V 标量核 + 硬件脉动阵列 NPU 协处理器）的生产级 AI 计算图编译器。
 
