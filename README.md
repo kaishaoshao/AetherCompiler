@@ -17,6 +17,8 @@
 
 ## 📚 详细设计与技术参考文档 (Architecture & Reference Manuals)
 
+* 🌟 **[AetherCompiler 核心架构哲学与 Agent 开发指南 (`docs/AETHER_COMPILER_CORE_SKILLS.md`)](docs/AETHER_COMPILER_CORE_SKILLS.md)**: 【**必读首要指南**】项目根本宣言、三大设计支柱、四大编译器思想扬弃与 Agent 开发铁律。
+* 🤖 **[项目 Agent 核心技能规范 (`.gemini/skills/aether-compiler/SKILL.md`)](.gemini/skills/aether-compiler/SKILL.md)**: 规范 AI Agent 在 AetherCompiler 开发、重构与算子扩展上的行为守则。
 * 📘 **[系统宏观架构设计白皮书 (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md)**: 4 层 MLIR 渐进降阶、分层 IR 语义、RISC-V `custom-0` 硬件扩展。
 * 📙 **[已注册 Pass 完整参考手册 (`docs/PASSES.md`)](docs/PASSES.md)**: 7 大中端优化 Pass 的图例重写、参数契约与硬件收益分析。
 * 📕 **[异构存储介质抽象与超异构芯片编译分发技术规范 (`docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md`)](docs/HETEROGENEOUS_MEMORY_AND_CHIP_SPEC.md)**: 3D DRAM、HBF 闪存、LPDDR5X、PIM 近存计算、硬件数据搬运原语（DMA/NoC 多播/DAE）、声明式 SoC 建模与主流芯片架构对比（Tenstorrent / TPU / Groq / AIE）。
