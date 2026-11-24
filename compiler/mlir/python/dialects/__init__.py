@@ -3,4 +3,7 @@ from . import flow
 from . import linalg
 from . import memref
 
-__all__ = ["zen", "flow", "linalg", "memref"]
+# Alias Aether dialect to Zen dialect for unified branding
+aether = zen
+
+__all__ = ["zen", "aether", "flow", "linalg", "memref"]

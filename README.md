@@ -145,6 +145,11 @@ AetherCompiler/
 │   │   ├── custom_kernel.py          # 自定义硬件 Kernel 接入接口与属性元数据
 │   │   ├── triton_dsl.py             # 模拟 Triton Block-Level 块化算子接入
 │   │   └── tilelang_dsl.py           # 模拟 TileLang Tile-Level 线程块协同算子接入
+│   ├── mlir/                         # LLVM/MLIR 工业级基础设施 (TableGen ODS, Dialects & Passes)
+│   │   ├── include/                  # TableGen 方言、算子与 Pass 声明 (.td)
+│   │   ├── lib/                      # C++ 方言定义与降阶转换 Passes (Dialect, Conversion)
+│   │   ├── python/                   # Pythonic SSA 构造器、Dialects (zen, flow, linalg, memref) 与 Bridge
+│   │   └── tools/                    # zen-opt (aether-opt) 模块化流水线驱动工具
 │   ├── driver.py                     # AetherCompiler 统一编译入口、C ABI 发射与数值模拟驱动
 │   └── pass_manager.py               # PassManager, PassRegistry, @register_pass 动态流水线
 ├── runtime/                          # 独立运行时执行引擎与硬件微架构 Profiler
