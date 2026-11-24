@@ -1,17 +1,18 @@
 # AetherCompiler 核心架构哲学与 Agent 开发指南 (Core Skills & Architecture Manifesto)
 
-> **版本**：v1.2.0-Production  
-> **定位**：AetherCompiler（以太编译器）核心设计哲学、两大分支演进定位、存储与数据搬运中端规范，以及开发 Agent 的不可违背守则。
+> **版本**：v1.3.0-Production  
+> **定位**：AetherCompiler（以太编译器）核心设计哲学、两大分支演进定位、四大架构支柱、自定义算子生态互操作规范，以及开发 Agent 的不可违背守则。
 
 ---
 
 ## 目录
 1. [一、 项目根本宗旨与定位哲学 (Project Manifesto)](#一-项目根本宗旨与定位哲学-project-manifesto)
 2. [二、 两大分支的协同与演进角色 (`feat/learn` vs `feat/llvm-mlir`)](#二-两大分支的协同与演进角色-featlearn-vs-featllvm-mlir)
-3. [三、 AetherCompiler 的三大核心架构支柱](#三-aethercompiler-的三大核心架构支柱)
+3. [三、 AetherCompiler 的四大核心架构支柱](#三-aethercompiler-的四大核心架构支柱)
    - [支柱 1：Mojo / MAX 风格的大模型高层重写前端](#支柱-1mojo--max-风格的大模型高层重写前端)
    - [支柱 2：存储介质与数据搬运作为第一公民的中端描述方法](#支柱-2存储介质与数据搬运作为第一公民的中端描述方法)
    - [支柱 3：计算架构解耦与极简算子执行位置绑定与切分 (Placement)](#支柱-3计算架构解耦与极简算子执行位置绑定与切分-placement)
+   - [支柱 4：原生支持 CUDA、Triton、TileLang 自定义算子混编与一等互操作](#支柱-4原生支持-cudatritontilelang-自定义算子混编与一等互操作)
 4. [四、 融合借鉴四大编译器巨头的核心思想与扬弃](#四-融合借鉴四大编译器巨头的核心思想与扬弃)
 5. [五、 `feat/llvm-mlir` 工业级生态重构设计规范](#五-featllvm-mlir-工业级生态重构设计规范)
 6. [六、 Agent 与开发者的核心铁律 (Core Rules for Agents)](#六-agent-与开发者的核心铁律-core-rules-for-agents)
@@ -29,40 +30,36 @@
 2. **拒绝扁平化单一内存假设（反传统一维指针内存模型）**：
    传统编译器假定硬件拥有单一扁平内存（Flat 1D Address Space）。但在真实大模型多 Die 超级芯片中，**系统瓶颈绝非计算算力，而是跨层级存储介质的访存与数据搬移**。
 3. **拒绝死板的指令集绑定（计算单元与中端深度解耦）**：
-   不把编译器绑定在某一种特定的指令集或硬件微架构上。计算单元应当是可插拔的黑盒执行引擎。
+   不把编译器绑定在某一种特定的指令集或硬件微架构上。计算单元应当是可插拔的黑盒执行引擎，编译器的唯一责任是让用户能够极其简单地拆分算子、并指定任意特殊算子在具体计算单元上运行。
+4. **拒绝封闭黑盒与外部内核割裂（反自绝于手工算子生态）**：
+   传统编译器往往将手写高性能算子视作破坏图优化的“外部黑盒逃逸（Escape Hatch）”，导致手写 Kernel 与编译器的全局内存复用、生命周期调度彻底脱节。AetherCompiler 将 **CUDA、OpenAI Triton、Microsoft TileLang 自定义高性能核视为第一公民**，深度融入计算图 DAG、全局生命周期规划和多介质搬运路由。
 
 ### 1.2 我们的核心主张
-> **大模型结构留在前端，数据搬运显式建模在中端，硬件算力按需指派在后端。**
+> **大模型结构保真于前端，存储介质与搬运显式于中端，硬件算力解耦于后端，顶级微核生态原生共生于全栈。**
 
 ---
 
 ## 二、 两大分支的协同与演进角色 (`feat/learn` vs `feat/llvm-mlir`)
 
-AetherCompiler 拥有两个高度互补且精神完全统一的核心分支：
+本项目采用 **双轨同构并行** 演进策略，两个分支具有清晰分工：
 
-```
-                ┌────────────────────────────────────────────────────────┐
-                │             AetherCompiler 统一设计哲学                 │
-                │   (大模型高层重写 + 存储/搬运中端 + 算子极简位置切分)     │
-                └──────────────────────────┬─────────────────────────────┘
-                                           │
-                    ┌──────────────────────┴──────────────────────┐
-                    ▼                                             ▼
-  【feat/learn 分支 (黄金算法参考)】             【feat/llvm-mlir 分支 (工业级基础设施)】
-  - 纯 Python 高内聚实现，零重量级依赖           - 复用 LLVM/MLIR 上游工业级生态
-  - 核心算法白盒透明，极速验证与原型迭代         - TableGen (ODS) 强类型语法与 Verifier
-  - 快速跑通 6 个真实大模型与全套测试            - MLIR PatternRewriter 与 One-Shot Bufferize
-  - 产出清晰直观的设计规范与数学模型             - 用 MLIR 严密重构 feat/learn 中的所有概念
-```
+### 2.1 `feat/learn` 分支：算法试验田与金标准基准 (The Reference Sandbox)
+- **实现语言**：纯 Python 现代化模块化架构（零外部 C++ 编译器与重型依赖）。
+- **使命职责**：
+  1. 完整实现四大支柱的核心逻辑：图重写、SymInt Presburger 求解、分级存储建模、Dijkstra 路由、算子 Placement 切分、自定义算子接入。
+  2. 充当所有优化算法的 **白盒金标准（Golden Reference）** 与原型验证基地。
+  3. 保证 100% 单元测试通过率，提供位精确（Bit-Exact）的端到端执行结果。
 
-- **`feat/learn` 是黄金设计参考与原型策源地**：
-  保持算法白盒、模块解耦、自给自足。所有关于大模型拓扑、动态符号求解（SymInt）、图着色内存复用、SRAM Bank 避冲、多 Die 路由图搜索的新算法，均在此分支首先验证通过。
-- **`feat/llvm-mlir` 是工业级生态重构**：
-  不是去照抄 IREE 的旧路，而是**用 MLIR 的元编译器能力（Custom Dialects, ODS, DRR, Bufferization）来严谨重构 `feat/learn` 的全部核心能力**。
+### 2.2 `feat/llvm-mlir` 分支：工业级 MLIR 生态重构 (Industrial LLVM/MLIR Ecosystem)
+- **实现语言**：C++20、LLVM/MLIR C++ API、TableGen ODS/DRR、CMake。
+- **使命职责**：
+  1. **绝对不是照搬 IREE 的扁平代码**，而是利用 LLVM/MLIR 强大的基础设施（TableGen, PatternRewriter, Dialect Conversion, One-Shot Bufferize）**重构 `feat/learn` 分支的设计思想**。
+  2. 实现三层定制 MLIR 方言：`aether_graph`（大模型宏观图）、`aether_mem`（存储介质与搬运）、`aether_place`（算子分派与切分）。
+  3. 将 `feat/learn` 中验证成熟的算法沉淀为工业级的高性能 MLIR Pass 流水线。
 
 ---
 
-## 三、 AetherCompiler 的三大核心架构支柱
+## 三、 AetherCompiler 的四大核心架构支柱
 
 ### 支柱 1：Mojo / MAX 风格的大模型高层重写前端
 
@@ -142,6 +139,29 @@ with aether.placement("systolic_npu_die", tp_world_size=4):
 
 ---
 
+### 支柱 4：原生支持 CUDA、Triton、TileLang 自定义算子混编与一等互操作
+
+#### 核心诉求
+在现代大模型极致优化场景下，全自动代码生成（Auto-codegen）无法完全替代人类专家对关键微核（如 FlashAttention-3 FP8 TMA、MoE 动态稀疏 GEMM、特定硬件 Fused RMSNorm）的手工调优。传统编译器将自定义核视作“破坏图优化的逃逸黑盒”，导致全局内存规约失效、流水线编排阻断。  
+**AetherCompiler 赋予手写高性能算子一等公民地位：将 NVIDIA CUDA、OpenAI Triton、Microsoft TileLang 无缝混编嵌入计算图，使其完全参与编译器的内存生命周期复用、分级存储搬运调度与跨设备协同。**
+
+#### 1. 深度拥抱三大主流微核生态 (Tri-Framework Native Support)
+- **NVIDIA CUDA**：底层的 Thread/Block/Grid SIMT 编程模型，支持注入 `__global__` 核与 host launch stub，原生调度 GPU 流与 Tensor Core。
+- **OpenAI Triton**：Block 级指针算术与掩码（`tl.program_id`, `tl.arange`, `tl.load`, `tl.store`），将复杂的分块融合算子（如 Fused Bias+GeLU、Softmax）以 Pythonic 方式原语嵌入。
+- **Microsoft TileLang**：Tile 级显式分块流水线（`T.alloc_tile`, `T.tile_load`, `T.tile_gemm`, `T.tile_store`），精确描述片上 SRAM Scratchpad 缓冲与 DMA 搬运重叠。
+
+#### 2. 自定义算子的四大“第一公民”特权
+1. **DAG 拓扑一等参与**：
+   自定义核通过 `CustomKernel` 包装为标准 `OpNode`，具备确切的形状推导、类型合同和纯值依赖关系，与编译器原生算子无缝混排。
+2. **全局动态内存规划（Memory Planning）穿透**：
+   自定义算子的输入与输出张量**完全纳入** Chaitin-Briggs 图着色内存规划器与生命周期分析。编译器为自定义算子分配紧凑无碎片的物理内存偏移，零内存泄漏，且保证满足 64 字节硬件对齐约束。
+3. **存储介质与 DMA Staging 联动**：
+   编译器中端感知自定义算子所需的目标存储介质（如 SRAM Scratchpad 或 HBM），若输入数据驻留在远程介质（如 CXL 或 DRAM），自动在其前驱和后继注入 2D-DMA 跨介质搬运与双缓冲掩盖。
+4. **统一 C-ABI 与驱动级发射**：
+   无论是原生 C JIT、LLVM MLIR 降阶还是独立脱机二进制，自定义算子均生成标准化的符号接口与异步时间线信号量（Timeline Semaphore）保护，消除 Python 运行时开销。
+
+---
+
 ## 四、 融合借鉴四大编译器巨头的核心思想与扬弃
 
 | 经典编译器 | 我们学到了什么（精髓吸收） | 我们扬弃了什么（大胆突破） |
@@ -160,6 +180,7 @@ with aether.placement("systolic_npu_die", tp_world_size=4):
 ### 5.1 三大核心方言定义
 1. **`aether_graph` 方言**（对应 `compiler/mlir/include/zen/ZenOps.td`）：
    - 保持高级张量运算：`aether_graph.matmul`, `aether_graph.paged_attention`, `aether_graph.rmsnorm`, `aether_graph.swiglu`。
+   - 原生支持自定义微核：`aether_graph.custom_kernel`（包含框架属性 `#aether_graph.framework<"cuda" | "triton" | "tilelang">`）。
    - 所有算子处于 Tensor 域（Pure Value Semantics），支持使用 MLIR `RewritePatternSet` 进行模式图融合。
 2. **`aether_mem` 方言**（对应存储介质与搬运）：
    - 自定义存储层级属性 `#aether_mem.tier<"3d_dram" | "cxl" | "sram_l2" | "scratchpad">`。
@@ -169,7 +190,7 @@ with aether.placement("systolic_npu_die", tp_world_size=4):
 
 ### 5.2 降阶流水线 (Pass Pipeline)
 ```text
-aether_graph (宏观模型图)
+aether_graph (宏观模型图 + 自定义 Kernel)
      │
      ▼  [Pass: AetherGraphRewritePass (PatternRewriter: FlashAttention, SwiGLU)]
 aether_graph (融合后图)
@@ -191,7 +212,7 @@ llvm.func (机器目标代码发射)
 
 ## 六、 Agent 与开发者的核心铁律 (Core Rules for Agents)
 
-所有在本项目上工作的 AI Agent 或人类工程师，必须**无条件遵守**以下四条开发铁律：
+所有在本项目上工作的 AI Agent 或人类工程师，必须**无条件遵守**以下五条开发铁律：
 
 ### 铁律 1：严禁在前端破坏大模型高层语义
 - **禁止**在 `compiler/frontend/` 或 `aether_graph` 方言入口处将大模型复合算子（如 Attention, RMSNorm, Gated MLP）拆解为微观的逐标量三重循环。
@@ -205,6 +226,10 @@ llvm.func (机器目标代码发射)
 - **禁止**将编译器中端优化策略（如常量折叠、内存复用、并行切分）硬编码绑定在 RISC-V Custom-0 或某一种专有 CPU 指令上。
 - **必须**通过 `TargetDesc`、`EngineDescriptor` 和 `Placement` 抽象提供算子分配能力，使得同一个计算图能够瞬间切换到 GPU、ASIC、PIM 或 CPU 运行。
 
-### 铁律 4：双分支协同与同步守则
+### 铁律 4：自定义高性能算子一等公民化
+- **禁止**将 CUDA、Triton、TileLang 手工算子作为割裂的黑盒绕过编译器内存规划或数据流分析。
+- **必须**将其抽象为标准的 `CustomKernel` / `OpNode`，完全参与生命周期分析、存储介质路由分配及异步时间线同步。
+
+### 铁律 5：双分支协同与同步守则
 - **`feat/learn` 优先**：任何核心编译优化理论与原型算法，先在 `feat/learn` 分支中用纯 Python 实现白盒验证，并通过 100% 单元测试与基准评测。
-- **`feat/llvm-mlir` 对齐**：在 `feat/llvm-mlir` 中复用 MLIR 的 C++/TableGen/Pattern 生态进行工业级重构，确保功能与 `feat/learn` 保持高度同构，绝不脱离上述三大支柱！
+- **`feat/llvm-mlir` 对齐**：在 `feat/llvm-mlir` 中复用 MLIR 的 C++/TableGen/Pattern 生态进行工业级重构，确保功能与 `feat/learn` 保持高度同构，绝不脱离上述四大支柱！

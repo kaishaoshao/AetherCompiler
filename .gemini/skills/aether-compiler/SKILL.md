@@ -12,7 +12,7 @@ This skill guides any AI agent or compiler engineer developing, extending, or ma
 `AetherCompiler` is an end-to-end full-stack AI compiler specifically engineered for Large Language Models running across heterogeneous multi-die chiplets and tiered storage media.
 
 **Key Axiom**:
-> **High-level LLM structure is preserved in the frontend (Mojo-style graph rewriting); storage media and data movement are first-class citizens in the mid-end; compute microarchitectures are decoupled, with first-class operator placement.**
+> **High-level LLM structure is preserved in the frontend (Mojo-style graph rewriting); storage media and data movement are first-class citizens in the mid-end; compute microarchitectures are decoupled, with first-class operator placement; custom kernels (CUDA, Triton, TileLang) are native first-class citizens.**
 
 ---
 
@@ -29,7 +29,7 @@ This skill guides any AI agent or compiler engineer developing, extending, or ma
 
 ---
 
-## The Three Architecture Pillars
+## The Four Architecture Pillars
 
 ### 1. High-Level LLM Graph Rewriting Frontend (Mojo / MAX Philosophy)
 - **Rule**: Never lower compound operations (`FlashAttention`, `RMSNorm`, `SwiGLU`, `RoPE`, `PagedAttention`) into scalar loops (`linalg.generic`) at the frontend.
@@ -63,11 +63,17 @@ This skill guides any AI agent or compiler engineer developing, extending, or ma
     ```
   - The compiler automatically routes data across tiers, manages memory residency, and inserts synchronization semaphores.
 
+### 4. Native Custom Kernel Interoperability (CUDA, Triton, TileLang)
+- **First-Class Citizens**: Hand-crafted micro-kernels authored in NVIDIA CUDA, OpenAI Triton, or Microsoft TileLang are instantiated directly as `OpNode`s via `CustomKernel`.
+- **Global Memory Planning**: Custom kernels fully participate in global lifetime analysis, Chaitin-Briggs graph coloring, and 64-byte alignment without memory fragmentation.
+- **Data Movement Staging**: The compiler automatically stages remote data into target SRAM/HBM buffers via DMA before triggering kernel launch.
+- **Multi-Backend Emission**: Emits standard C-ABI, host launch stubs, or MLIR custom dispatch with timeline semaphore synchronization.
+
 ---
 
 ## Dialect Mapping in `feat/llvm-mlir`
 
-- `aether_graph` Dialect: High-level macro tensor ops (`aether_graph.flash_attention`, `aether_graph.swiglu`).
+- `aether_graph` Dialect: High-level macro tensor ops (`aether_graph.flash_attention`, `aether_graph.swiglu`) and custom dispatch (`aether_graph.custom_kernel`).
 - `aether_mem` Dialect: Storage tiers `#aether_mem.tier<"3d_dram">` and transfers `aether_mem.dma_2d`.
 - `aether_place` Dialect: Placement regions `aether_place.dispatch @target_die::@engine`.
 
@@ -79,5 +85,6 @@ When implementing new features, passes, or models:
 1. [ ] **No premature lowering**: Did you keep macro LLM ops intact until after high-level optimizations and placement?
 2. [ ] **Explicit memory tier**: Did you specify or respect the storage media tier for newly allocated buffers?
 3. [ ] **Compute decoupling**: Is the pass independent of specific hardware instruction sets?
-4. [ ] **Verification**: Run `bash scripts/run_all_tests.sh` (must pass 100%).
-5. [ ] **Branch parity**: When updating `feat/learn`, ensure changes are ported and committed to `feat/llvm-mlir`.
+4. [ ] **First-class custom kernels**: Are external CUDA/Triton/TileLang kernels integrated into memory planning and data movement?
+5. [ ] **Verification**: Run `bash scripts/run_all_tests.sh` (must pass 100%).
+6. [ ] **Branch parity**: When updating `feat/learn`, ensure changes are ported and committed to `feat/llvm-mlir`.
