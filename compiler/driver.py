@@ -124,9 +124,10 @@ class CompiledArtifact:
         return [sim.read_tensor(out) for out in concrete_graph.outputs]
 
 
-class LLMCompiler:
+class AetherCompiler:
     """
-    Unified AI Graph Compiler Driver (LLMGraphCompiler / LLMCompiler).
+    Unified AI Graph Compiler Driver (AetherCompiler).
+    A modern full-stack AI compiler for LLMs and heterogeneous chiplets with diverse storage media.
     Absorbs the architectural pillars of Mojo/MAX, IREE, MLIR, and TVM.
     Supports SymInt Dynamic Symbolic Shapes, Heterogeneous Multi-Die Chiplets,
     and Progressive Dialect Lowering.
@@ -267,6 +268,8 @@ class LLMCompiler:
 
 
 # Ergonomic & Backward-Compatible Aliases
-LLMGraphCompiler = LLMCompiler
-Compiler = LLMCompiler
-ZenNPUCompiler = LLMCompiler
+AetherGraphCompiler = AetherCompiler
+LLMCompiler = AetherCompiler
+LLMGraphCompiler = AetherCompiler
+Compiler = AetherCompiler
+ZenNPUCompiler = AetherCompiler

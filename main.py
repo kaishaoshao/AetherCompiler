@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 =============================================================================
-Zen-NPU Compiler (TinyGC-RISCV) End-to-End Driver
+AetherCompiler (TinyGC-RISCV) End-to-End Driver
 =============================================================================
 Demonstrating the Deep Architectural Pillars of Mojo/MAX & IREE:
 1. MAX Pillar 1: Zero-Copy StridedLayout & Symbolic Algebraic Dimensions (RMO -> MO)
@@ -35,7 +35,7 @@ from compiler.extensions import (
     build_triton_fused_gelu,
     build_tilelang_gemm_relu
 )
-from compiler import ZenNPUCompiler
+from compiler import AetherCompiler
 from runtime import VirtualNPUSimulator, TimelineSemaphore, CommandBuffer, AsyncDeviceQueue
 
 def compile_and_verify_model(model_name: str, graph: Graph, input_tensor: Tensor, sram_kb: int = 16, num_cores: int = 4):
@@ -44,7 +44,7 @@ def compile_and_verify_model(model_name: str, graph: Graph, input_tensor: Tensor
     print("#" * 80)
 
     # 1. Unified End-to-End Compiler Driver
-    compiler = ZenNPUCompiler(sram_kb=sram_kb, num_cores=num_cores, freq_ghz=1.0, print_after_all=False)
+    compiler = AetherCompiler(sram_kb=sram_kb, num_cores=num_cores, freq_ghz=1.0, print_after_all=False)
     artifact = compiler.compile(graph)
 
     # 2. Multi-Level Progressive Dialect Text Previews
@@ -175,7 +175,7 @@ def build_hybrid_triton_tilelang_graph() -> tuple:
 
 def main():
     print("=" * 80)
-    print(" ZEN-NPU COMPILER: Complete End-to-End AI Graph Compiler Framework")
+    print(" AETHER COMPILER: Complete End-to-End AI Graph Compiler Framework")
     print(" Absorbing Core Philosophies of Mojo/MAX & IREE")
     print(" Models: MLP, LLaMA, Qwen2.5, DeepSeek-V3, Hybrid Triton + TileLang")
     print("=" * 80)

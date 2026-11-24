@@ -132,8 +132,8 @@ class ZenInferenceEngine:
         ]
 
         # 3. Compiler instance for JIT/AOT artifact generation
-        from compiler.driver import ZenNPUCompiler
-        self.compiler = ZenNPUCompiler(sram_kb=sram_kb, num_cores=num_cores)
+        from compiler.driver import AetherCompiler
+        self.compiler = AetherCompiler(sram_kb=sram_kb, num_cores=num_cores)
 
         # Cache of compiled artifacts: seq_len -> Any
         self._compiled_cache: Dict[int, Any] = {}
@@ -238,7 +238,7 @@ class ZenInferenceEngine:
 
         g.set_outputs([final_out])
 
-        # Compile with ZenNPUCompiler
+        # Compile with AetherCompiler
         artifact = self.compiler.compile(g)
         self._compiled_cache[seq_len] = artifact
         return artifact

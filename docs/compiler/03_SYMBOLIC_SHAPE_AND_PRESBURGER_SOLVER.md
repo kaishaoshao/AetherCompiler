@@ -65,7 +65,7 @@ for (int i = 0; i < S; i += BM) {
 
 ## 二、 符号整数代数系统 (`SymExpr` & `Dim`)
 
-Zen-NPU 编译器引入了与 Modular MAX 完全对标的符号维度代数系统（位于 `frontend/symbolic.py`）。
+Aether 编译器引入了与 Modular MAX 完全对标的符号维度代数系统（位于 `frontend/symbolic.py`）。
 
 ### 1. 符号表达式抽象语法树 (AST)
 
@@ -149,7 +149,7 @@ int actual_bm = (i + BM > S) ? (S - i) : BM;
 
 ### 2. 消除判据与编译期数学证明流程
 
-Zen-NPU 的 `TilingAndPipelinePass` 在执行分块搜索时，与符号定理证明器紧密耦合：
+Aether 的 `TilingAndPipelinePass` 在执行分块搜索时，与符号定理证明器紧密耦合：
 
 ```
                     Tiling Space Candidate: BM = 16
@@ -186,7 +186,7 @@ for (int i = 0; i < S; i += 16) {
 
 ## 五、 端到端动态形状编译与多长度执行实证
 
-在测试套件 `test_sym_int_solver.py` 中，Zen-NPU 验证了完整的动态形状编译与多长度复用能力：
+在测试套件 `test_sym_int_solver.py` 中，Aether 验证了完整的动态形状编译与多长度复用能力：
 
 ```
 ================================================================================
@@ -205,4 +205,4 @@ for (int i = 0; i < S; i += 16) {
 ```
 
 **实测结果证实**:
-同一份经由 Zen-NPU 编译出的离线机器代码与内存规划，无需重新编译（Zero JIT Overhead），即可完全正确地无缝服务任意 $S=16, 64, 128$ 的动态输入请求，且在内部循环中杜绝了任何多余的分支判断！
+同一份经由 Aether 编译出的离线机器代码与内存规划，无需重新编译（Zero JIT Overhead），即可完全正确地无缝服务任意 $S=16, 64, 128$ 的动态输入请求，且在内部循环中杜绝了任何多余的分支判断！

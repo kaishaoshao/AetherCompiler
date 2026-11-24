@@ -170,7 +170,7 @@ effective_bw = min(src.read_bandwidth_bytes_cycle, dst.write_bandwidth_bytes_cyc
 
 ## 五、 编译器中的存储空间枚举与安置映射关系
 
-在 Zen-NPU 编译器中，`MemoryHierarchy.find_optimal_placement()` 建立了全自动的映射链条：
+在 Aether 编译器中，`MemoryHierarchy.find_optimal_placement()` 建立了全自动的映射链条：
 
 ```
                       Input Tensor Descriptor

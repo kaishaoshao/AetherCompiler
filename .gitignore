@@ -15,3 +15,4 @@ output/
 build/
 generated_*.c
 generated_*.s
+benchmarks/benchmark_results.json

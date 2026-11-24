@@ -1,12 +1,12 @@
-# Zen-NPU AI Graph Compiler: System Architecture & Design Specification
+# Aether AI Graph Compiler: System Architecture & Design Specification
 
 ---
 
 ## 1. 设计哲学与宏观全景 (Design Philosophy)
 
-Zen-NPU (TinyGC-RISCV) 是一个面向新一代异构计算芯片（RISC-V 标量核 + 硬件脉动阵列 NPU 协处理器）的生产级 AI 计算图编译器。
+Aether (TinyGC-RISCV) 是一个面向新一代异构计算芯片（RISC-V 标量核 + 硬件脉动阵列 NPU 协处理器）的生产级 AI 计算图编译器。
 
-传统的深度学习编译器（如早期 TVM 或 XLA）通常采用单阶段、高阶图直降到底层紧耦合代码的架构，这导致高级拓扑优化、硬件工作组切分与微架构调度逻辑严重杂糅。Zen-NPU 彻底吸收了当前业界三大顶尖编译器（**Modular MAX**、**IREE** 与 **Apache TVM**）的现代解耦哲学：
+传统的深度学习编译器（如早期 TVM 或 XLA）通常采用单阶段、高阶图直降到底层紧耦合代码的架构，这导致高级拓扑优化、硬件工作组切分与微架构调度逻辑严重杂糅。Aether 彻底吸收了当前业界三大顶尖编译器（**Modular MAX**、**IREE** 与 **Apache TVM**）的现代解耦哲学：
 
 1. **分层渐进降阶 (Progressive Lowering)**：从数学计算图到硬件机器码历经 4 级语义清晰的 Dialect 阶梯，每一级只解决特定抽象层级的问题（图优化 $\to$ 分派切片 $\to$ 便笺内存调度 $\to$ 运行时命令流 $\to$ 汇编发射）。
 2. **符号与具体分离 (RMO to MO Transition)**：计算图定义期支持符号化维度（SymInt），通过 Presburger 算术求解器在编译期证明硬件不变量，下发至硬件时特化为确定性内存偏移与循环步长。
@@ -119,7 +119,7 @@ Zen-NPU (TinyGC-RISCV) 是一个面向新一代异构计算芯片（RISC-V 标�
 
 ## 3. 目标硬件微架构与协处理器指令规范
 
-### 硬件规格参数 (Zen-NPU Microarchitecture)
+### 硬件规格参数 (Aether Microarchitecture)
 | 硬件组件 | 规格参数 | 说明 |
 | :--- | :--- | :--- |
 | **主控核心** | 4 $\times$ RISC-V RV64GC Cores | 工作频率 1.0 GHz，单核双发射标量指令流水线 |
@@ -129,7 +129,7 @@ Zen-NPU (TinyGC-RISCV) 是一个面向新一代异构计算芯片（RISC-V 标�
 | **片外内存接口** | 32 GB/s LPDDR5 / High-speed Bus | 支持异步 2D 跨步 DMA 控制器 |
 
 ### Custom-0 协处理器指令编码
-Zen-NPU 协处理器通过标准 RISC-V 0x0B 操作码（`custom-0`）与主 CPU 解耦交互，采用 R-Type 格式指令扩展：
+Aether 协处理器通过标准 RISC-V 0x0B 操作码（`custom-0`）与主 CPU 解耦交互，采用 R-Type 格式指令扩展：
 
 $$ \text{Instruction Format: } \texttt{.insn r 11, funct3, funct7, rd, rs1, rs2} $$
 
@@ -145,7 +145,7 @@ $$ \text{Instruction Format: } \texttt{.insn r 11, funct3, funct7, rd, rs1, rs2}
 
 ## 4. 全局脱机内存规划 (MAX MGP Interval Coloring)
 
-在深度学习模型（如 LLaMA、DeepSeek）推理过程中，频繁的动态显存分配（`malloc`/`free`）会带来严重的物理碎片化和延迟毛刺。Zen-NPU 实现了基于**区间图着色算法（First-Fit Decreasing Interval Coloring）**的全局脱机规划：
+在深度学习模型（如 LLaMA、DeepSeek）推理过程中，频繁的动态显存分配（`malloc`/`free`）会带来严重的物理碎片化和延迟毛刺。Aether 实现了基于**区间图着色算法（First-Fit Decreasing Interval Coloring）**的全局脱机规划：
 
 ```
 Time Step:    0       1       2       3       4       5

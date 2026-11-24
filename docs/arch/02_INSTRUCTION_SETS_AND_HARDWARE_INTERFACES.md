@@ -55,7 +55,7 @@
 
 ### 1. 标准 RISC-V 寄存器文件与调用约定 (ABI)
 
-Zen-NPU 代码生成器遵循标准 LP64D 调用约定：
+Aether 代码生成器遵循标准 LP64D 调用约定：
 - **`x0` (zero)**: 硬连线恒为 0，用于清零累加或丢弃无用返回值；
 - **`x1` (ra)**: 函数返回地址；
 - **`x2` (sp)**: 栈指针；
@@ -78,11 +78,11 @@ RISC-V 架构手册（Volume I）在基本 32 位操作码映射中，专为领�
 - **`custom-2`**: `opcode = 7'b1011011` (`0x5B`)
 - **`custom-3`**: `opcode = 7'b1111011` (`0x7B`)
 
-Zen-NPU 编译器选用 **`custom-0` (0x0B)** 作为与硬件 NPU 张量协处理器的标准通信通道。
+Aether 编译器选用 **`custom-0` (0x0B)** 作为与硬件 NPU 张量协处理器的标准通信通道。
 
 ### 2. LLVM 原生机器指令格式 (`.insn r` 指令编码规则)
 
-为了实现纯自包含、无专有魔改汇编器的代码生成，Zen-NPU 利用标准 GNU/LLVM 汇编器的 `.insn` 伪指令语法直接发射 R-Type 自定义指令：
+为了实现纯自包含、无专有魔改汇编器的代码生成，Aether 利用标准 GNU/LLVM 汇编器的 `.insn` 伪指令语法直接发射 R-Type 自定义指令：
 
 ```assembly
 # 语法规范: .insn r opcode, func3, func7, rd, rs1, rs2
@@ -96,7 +96,7 @@ Zen-NPU 编译器选用 **`custom-0` (0x0B)** 作为与硬件 NPU 张量协处�
 
 ### 3. 脉动乘法与专用张量微指令集定义
 
-Zen-NPU 在 `custom-0` 下规划了 4 条核心硬件指令：
+Aether 在 `custom-0` 下规划了 4 条核心硬件指令：
 
 | `func7` 编码 | 汇编助记符 | 寄存器映射 | 硬件微架构行为与语义 |
 | :---: | :--- | :--- | :--- |
@@ -157,7 +157,7 @@ typedef struct __attribute__((aligned(64))) {
 
 ### 2. 硬件时间线信号量寄存器 (Timeline Semaphore Register)
 
-为了消灭 CPU 软件轮询自旋带来的总线拥塞，现代 AI 芯片（如 Google TPU、Tenstorrent、Zen-NPU）在硬件内部实现了专用硬件信号量寄存器：
+为了消灭 CPU 软件轮询自旋带来的总线拥塞，现代 AI 芯片（如 Google TPU、Tenstorrent、Aether）在硬件内部实现了专用硬件信号量寄存器：
 - 内部维护一个单调递增的 64 位整型计数器 `current_timeline_value`；
 - **指令 `hal.semaphore.signal(val)`**: 当特定计算块或 DMA 搬运完毕后，硬件原子写入信号量并将计数器置为 `val`；
 - **指令 `hal.semaphore.wait(val)`**: 硬件比较器在硬件微架构层面挂起当前核心发射队列（零动态功耗），直到 `current_timeline_value >= val`，即刻单周期唤醒。
