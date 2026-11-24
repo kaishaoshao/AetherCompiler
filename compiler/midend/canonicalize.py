@@ -21,7 +21,7 @@ Key Invariants & Algebraic Rules:
 
 from typing import List, Dict, Set, Optional, Tuple, Any
 import math
-from frontend import Graph, OpNode, Tensor, ops
+from compiler.frontend import Graph, OpNode, Tensor, ops
 from compiler.pass_manager import register_pass
 
 

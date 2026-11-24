@@ -19,12 +19,12 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from frontend import (
+from compiler.frontend import (
     Graph, Tensor, ops
 )
-from frontend.ops import ShapeMismatchError, broadcast_shapes
-from frontend.standard_ops import _ref_add, _ref_mul
-from midend import DeadCodeEliminationPass
+from compiler.frontend.ops import ShapeMismatchError, broadcast_shapes
+from compiler.frontend.standard_ops import _ref_add, _ref_mul
+from compiler.midend import DeadCodeEliminationPass
 from compiler import ZenNPUCompiler
 
 

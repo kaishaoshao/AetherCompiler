@@ -7,7 +7,7 @@ Features an open-ended Pattern Rewriter architecture:
 """
 
 from typing import Dict, List, Set, Optional, Tuple
-from frontend import Graph, OpNode, Tensor
+from compiler.frontend import Graph, OpNode, Tensor
 from compiler.pass_manager import register_pass
 
 class FusionPattern:

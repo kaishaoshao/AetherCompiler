@@ -15,7 +15,7 @@ Key Architectural Pillars:
 """
 
 from typing import List, Dict, Any, Tuple, Optional
-from frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
+from compiler.frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
 from compiler.pass_manager import register_pass
 
 class BufferBinding:

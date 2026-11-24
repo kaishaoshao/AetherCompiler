@@ -12,7 +12,7 @@ Features distinctive to DeepSeek:
 """
 
 from typing import List, Tuple
-from frontend import Graph, Tensor, Module, Linear, RMSNorm, SwiGLU, ops
+from compiler.frontend import Graph, Tensor, Module, Linear, RMSNorm, SwiGLU, ops
 
 class DeepseekMLA(Module):
     """

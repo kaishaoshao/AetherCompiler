@@ -14,9 +14,9 @@ in a concise YAML/Dict specification, and immediately compile AI models for it!
 
 import sys
 import os
-from frontend import Graph, Tensor, ops
-from ir import ChipComposition, TransferStrategy
-from midend.flow_dispatch import FlowDispatchPass, FlowModule
+from compiler.frontend import Graph, Tensor, ops
+from compiler.ir import ChipComposition, TransferStrategy
+from compiler.midend.flow_dispatch import FlowDispatchPass, FlowModule
 
 # ----------------------------------------------------------------------------
 # 1. Declarative YAML Hardware Blueprint for a Brand-New Superchip Combination

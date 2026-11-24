@@ -18,7 +18,7 @@ import math
 import random
 from typing import List, Dict, Any, Optional, Tuple
 
-from frontend import Graph, Tensor, ops
+from compiler.frontend import Graph, Tensor, ops
 from .simulator import VirtualNPUSimulator
 from .kv_cache import PagedKVCacheManager
 

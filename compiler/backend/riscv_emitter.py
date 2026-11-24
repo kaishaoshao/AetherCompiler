@@ -10,10 +10,10 @@ Adding new models and new operators requires ZERO modifications to this file.
 """
 
 from typing import List, Dict, Any
-from frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
-from midend.tvm_pipeline import TilingAndPipelinePass
-from midend.flow_dispatch import FlowDispatchPass
-from ir import lower_graph_to_loop_ir, lower_loop_ir_to_command_ir, LoopModule, CommandModule
+from compiler.frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
+from compiler.midend.tvm_pipeline import TilingAndPipelinePass
+from compiler.midend.flow_dispatch import FlowDispatchPass
+from compiler.ir import lower_graph_to_loop_ir, lower_loop_ir_to_command_ir, LoopModule, CommandModule
 
 class RiscvNpuCodeGenerator:
     def __init__(self, sram_bytes: int = 16 * 1024, num_cores: int = 4):

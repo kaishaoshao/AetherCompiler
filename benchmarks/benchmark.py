@@ -30,7 +30,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from frontend import Graph, Tensor, StridedLayout, SymbolicDim, ops
+from compiler.frontend import Graph, Tensor, StridedLayout, SymbolicDim, ops
 from models import (
     build_mlp_graph,
     build_transformer_block_graph,
@@ -38,7 +38,7 @@ from models import (
     build_deepseek_layer_graph,
     build_gemma_layer_graph
 )
-from extensions import (
+from compiler.extensions import (
     build_triton_fused_gelu,
     build_tilelang_gemm_relu
 )

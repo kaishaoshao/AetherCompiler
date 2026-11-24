@@ -12,7 +12,7 @@ Architectural Innovations:
 """
 
 from typing import Dict, List, Tuple, Optional, Any, Set
-from frontend import Graph, OpNode, Tensor, StridedLayout, OpRegistry, OpTrait
+from compiler.frontend import Graph, OpNode, Tensor, StridedLayout, OpRegistry, OpTrait
 from compiler.pass_manager import register_pass
 from .tvm_pipeline import TilingAndPipelinePass, TilingSchedule
 

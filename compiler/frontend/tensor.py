@@ -13,7 +13,7 @@ Core Architectural Innovations (MAX 核心灵魂):
 
 from typing import Tuple, Union, Optional, Dict, List, Any
 import math
-from ir.sym_int import (
+from compiler.ir.sym_int import (
     SymExpr, SymVar, SymConst, Constraint,
     SymbolicConstraintSolver, sym_var, sym_const
 )

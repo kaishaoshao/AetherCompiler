@@ -14,7 +14,7 @@ Finds congruent OpNodes that compute identical mathematical functions on identic
 """
 
 from typing import List, Dict, Set, Optional, Tuple, Any
-from frontend import Graph, OpNode, Tensor
+from compiler.frontend import Graph, OpNode, Tensor
 from compiler.pass_manager import register_pass
 
 COMMUTATIVE_OPS = {"add", "mul"}

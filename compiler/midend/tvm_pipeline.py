@@ -6,7 +6,7 @@ Middle-End Pass: Tiling & SRAM Software Pipelining (TVM TensorIR 思想).
 """
 
 from typing import Tuple, Union, Optional
-from ir.sym_int import SymExpr, SymbolicConstraintSolver
+from compiler.ir.sym_int import SymExpr, SymbolicConstraintSolver
 from compiler.pass_manager import register_pass
 
 class TilingSchedule:

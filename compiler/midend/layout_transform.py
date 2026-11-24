@@ -13,7 +13,7 @@ Core Architectural Innovations:
 """
 
 from typing import List, Dict, Set, Optional, Tuple, Any
-from frontend import Graph, OpNode, Tensor, ops
+from compiler.frontend import Graph, OpNode, Tensor, ops
 from compiler.pass_manager import register_pass
 
 ELEMENTWISE_UNARY_OPS = {"relu", "silu", "gelu", "cast"}

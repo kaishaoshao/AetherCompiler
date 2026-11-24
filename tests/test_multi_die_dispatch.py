@@ -14,8 +14,8 @@ Verifies:
 """
 
 import sys
-from frontend import Graph, Tensor, ops
-from ir import (
+from compiler.frontend import Graph, Tensor, ops
+from compiler.ir import (
     HierarchyLevel,
     InterconnectType,
     TransferStrategy,
@@ -38,7 +38,7 @@ from ir import (
     CmdObjectFifoRelease,
     CommandModule
 )
-from midend.flow_dispatch import FlowDispatchPass, FlowModule
+from compiler.midend.flow_dispatch import FlowDispatchPass, FlowModule
 
 
 def test_1_target_architecture_chiplet_unification():

@@ -18,7 +18,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from frontend import Graph, Tensor, ops
+from compiler.frontend import Graph, Tensor, ops
 from compiler import (
     PassManager,
     PassRegistry,
@@ -27,7 +27,7 @@ from compiler import (
     parse_pipeline,
     ZenNPUCompiler
 )
-from midend import (
+from compiler.midend import (
     ConstantFoldingAndPrepackPass,
     HorizontalFusionPass,
     OperatorFusionPass,

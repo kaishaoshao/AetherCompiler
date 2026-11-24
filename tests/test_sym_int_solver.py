@@ -20,14 +20,14 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from ir.sym_int import (
+from compiler.ir.sym_int import (
     SymExpr, SymVar, SymConst, Constraint,
     SymbolicConstraintSolver, sym_var, sym_const
 )
-from frontend import (
+from compiler.frontend import (
     Graph, Tensor, SymbolicDim, StridedLayout, ops
 )
-from midend import TilingAndPipelinePass, MemoryPlanningPass
+from compiler.midend import TilingAndPipelinePass, MemoryPlanningPass
 from compiler import ZenNPUCompiler
 
 

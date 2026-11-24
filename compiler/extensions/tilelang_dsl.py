@@ -8,7 +8,7 @@ Emulates Microsoft TileLang tile-level programming paradigm:
 """
 
 from typing import List, Dict, Any, Callable, Tuple
-from frontend import Tensor
+from compiler.frontend import Tensor
 from .custom_kernel import CustomKernel
 
 class TileLangLib:

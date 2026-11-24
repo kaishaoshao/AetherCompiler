@@ -1,3 +1,23 @@
+"""
+Zen-NPU AI Graph Compiler: Unified Compiler Core Package.
+
+Architecture:
+- compiler.frontend   : Computational Graph DAG, Tensors, Ops, DTypes, Parsers
+- compiler.ir         : SymInt Symbolic Solver, Command IR, Hardware Composition
+- compiler.midend     : Optimization Passes (Fusion, DCE, CSE, Canonicalize, Layout, MemoryPlanning)
+- compiler.backend    : RISC-V Custom-0 Code Generator & NPU Simulator
+- compiler.extensions : Triton DSL & TileLang Interoperability
+- compiler.driver     : High-level compilation pipeline driver (ZenNPUCompiler)
+"""
+
+# Expose subpackages as first-class namespaces first
+from . import frontend
+from . import ir
+from . import midend
+from . import backend
+from . import extensions
+
+# Pass management
 from .pass_manager import (
     PassManager,
     CompilerPass,
@@ -7,23 +27,54 @@ from .pass_manager import (
     parse_pipeline
 )
 
+# Driver
+from .driver import ZenNPUCompiler, CompiledArtifact
+
+# Convenience re-exports of primary symbols
+from .frontend import Graph, Tensor, ops, DType, FLOAT32, FLOAT16, BFLOAT16, INT8, INT4
+from .ir import (
+    ChipComposition, MemorySpace, MemoryTier, InterconnectType,
+    sym_var, sym_const, SymExpr, SymbolicConstraintSolver
+)
+
 __all__ = [
+    # Top-level driver & artifacts
+    "ZenNPUCompiler",
+    "CompiledArtifact",
+
+    # Pass management
     "PassManager",
     "CompilerPass",
     "PassRegistry",
     "PassInfo",
     "register_pass",
     "parse_pipeline",
-    "ZenNPUCompiler",
-    "CompiledArtifact"
-]
 
-def __getattr__(name: str):
-    if name in ("ZenNPUCompiler", "CompiledArtifact"):
-        from .driver import ZenNPUCompiler as _ZenNPUCompiler, CompiledArtifact as _CompiledArtifact
-        globals()["ZenNPUCompiler"] = _ZenNPUCompiler
-        globals()["CompiledArtifact"] = _CompiledArtifact
-        if name == "ZenNPUCompiler":
-            return _ZenNPUCompiler
-        return _CompiledArtifact
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    # Subpackages
+    "frontend",
+    "ir",
+    "midend",
+    "backend",
+    "extensions",
+
+    # Core Frontend Types
+    "Graph",
+    "Tensor",
+    "ops",
+    "DType",
+    "FLOAT32",
+    "FLOAT16",
+    "BFLOAT16",
+    "INT8",
+    "INT4",
+
+    # Core IR Types
+    "ChipComposition",
+    "MemorySpace",
+    "MemoryTier",
+    "InterconnectType",
+    "sym_var",
+    "sym_const",
+    "SymExpr",
+    "SymbolicConstraintSolver",
+]

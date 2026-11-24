@@ -20,7 +20,7 @@ import subprocess
 # Ensure local packages are on sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from frontend import Graph, Tensor, StridedLayout, SymbolicDim, ops
+from compiler.frontend import Graph, Tensor, StridedLayout, SymbolicDim, ops
 from models import (
     build_mlp_graph,
     build_transformer_block_graph,
@@ -31,7 +31,7 @@ from models import (
     WeightAdapter,
     ConfigShim
 )
-from extensions import (
+from compiler.extensions import (
     build_triton_fused_gelu,
     build_tilelang_gemm_relu
 )

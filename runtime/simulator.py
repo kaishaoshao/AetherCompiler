@@ -6,7 +6,7 @@ Adding new models and new operators requires ZERO modifications to this file.
 """
 
 from typing import List, Tuple
-from frontend import Graph, Tensor, OpNode, OpRegistry
+from compiler.frontend import Graph, Tensor, OpNode, OpRegistry
 
 def flatten(mat) -> List[float]:
     if isinstance(mat, list) and mat and isinstance(mat[0], list):

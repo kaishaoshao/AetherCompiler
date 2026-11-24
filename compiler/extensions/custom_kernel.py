@@ -9,7 +9,7 @@ Enables inserting user-defined micro-kernels (e.g. Triton, TileLang, Mojo) into 
 """
 
 from typing import List, Dict, Any, Callable, Tuple, Optional
-from frontend import Tensor, OpNode, OpRegistry, OpDefinition, OpTrait
+from compiler.frontend import Tensor, OpNode, OpRegistry, OpDefinition, OpTrait
 
 class CustomKernel:
     """Descriptor for an external or custom DSL kernel (Triton / TileLang / Mojo)."""

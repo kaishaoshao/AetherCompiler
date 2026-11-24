@@ -18,8 +18,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from frontend import Graph, Tensor, ops
-from ir import (
+from compiler.frontend import Graph, Tensor, ops
+from compiler.ir import (
     MemorySpace,
     MemoryTier,
     MemoryHierarchy,
@@ -28,7 +28,7 @@ from ir import (
     ComputeEngine,
     TargetArchitecture
 )
-from midend import FlowDispatchPass
+from compiler.midend import FlowDispatchPass
 from compiler import ZenNPUCompiler
 
 
@@ -164,7 +164,7 @@ def test_4_heterogeneous_flow_module_ir():
     assert executables[2].target_engine == "fixed_softmax_asic"
     assert executables[2].queue_name == "asic_softmax_queue"
 
-    from midend.flow_dispatch import FlowModule
+    from compiler.midend.flow_dispatch import FlowModule
     flow_mod = FlowModule("Hetero_DAG_Flow", executables, regions)
     mlir_text = flow_mod.to_mlir_text()
 

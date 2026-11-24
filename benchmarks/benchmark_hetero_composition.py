@@ -17,9 +17,9 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from frontend import Graph, Tensor, ops
-from ir import ChipComposition, TransferStrategy
-from midend.flow_dispatch import FlowDispatchPass
+from compiler.frontend import Graph, Tensor, ops
+from compiler.ir import ChipComposition, TransferStrategy
+from compiler.midend.flow_dispatch import FlowDispatchPass
 
 
 def build_llm_transformer_layer(seq_len: int = 16):

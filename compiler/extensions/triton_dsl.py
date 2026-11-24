@@ -8,7 +8,7 @@ Emulates Triton block-level programming paradigm:
 
 import math
 from typing import List, Dict, Any, Callable, Tuple
-from frontend import Tensor
+from compiler.frontend import Tensor
 from .custom_kernel import CustomKernel
 
 # Mini Triton Primitive Simulation

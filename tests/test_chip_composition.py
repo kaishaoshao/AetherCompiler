@@ -18,7 +18,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from ir import (
+from compiler.ir import (
     MemorySpace,
     MemoryTier,
     DataMoverType,
@@ -232,7 +232,7 @@ def test_7_compiler_analysis_ucie_vs_cxl():
     print("=" * 70)
 
     comp = ChipComposition.create_modular_llm_superchip_composition()
-    from ir import TransferStrategy
+    from compiler.ir import TransferStrategy
 
     # 1. Analyze Route over UCIe (NPU Scratchpad <==> Dedicated ASIC Die)
     route_ucie = comp.find_shortest_data_path("NPU_Local_Scratchpad_SRAM", "NPU_Local_Scratchpad_SRAM") # intra or across

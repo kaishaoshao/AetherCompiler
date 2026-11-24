@@ -6,7 +6,7 @@ do not contribute to any model outputs.
 """
 
 from typing import Set
-from frontend import Graph, OpNode
+from compiler.frontend import Graph, OpNode
 from compiler.pass_manager import register_pass
 
 @register_pass(

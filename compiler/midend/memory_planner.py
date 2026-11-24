@@ -10,8 +10,8 @@ Core Architectural Innovations:
 """
 
 from typing import Dict, List, Tuple, Optional
-from frontend import Graph, Tensor, OpRegistry, OpTrait
-from ir.sym_int import SymbolicConstraintSolver
+from compiler.frontend import Graph, Tensor, OpRegistry, OpTrait
+from compiler.ir.sym_int import SymbolicConstraintSolver
 from compiler.pass_manager import register_pass
 
 @register_pass(

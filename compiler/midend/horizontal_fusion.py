@@ -16,7 +16,7 @@ Core Architectural Innovations:
 
 from typing import Dict, List, Set, Tuple
 from collections import defaultdict
-from frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
+from compiler.frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait
 from compiler.pass_manager import register_pass
 
 @register_pass(

@@ -6,7 +6,7 @@
     "dram_traffic_reduction_pct": 34.64140730717185,
     "memory_footprint_savings_pct": 49.70873786407767,
     "overlap_efficiency_pct": 3.9232781168265043,
-    "compile_time_ms": 32.28292899439111,
+    "compile_time_ms": 35.338771995157,
     "max_numerical_diff": 0.0,
     "baseline": {
       "total_cycles": 4108,
@@ -35,7 +35,7 @@
     "dram_traffic_reduction_pct": 13.075780089153044,
     "memory_footprint_savings_pct": 30.61855670103093,
     "overlap_efficiency_pct": 2.076958738989337,
-    "compile_time_ms": 37.043999996967614,
+    "compile_time_ms": 38.530478996108286,
     "max_numerical_diff": 7.775711351892811e-05,
     "baseline": {
       "total_cycles": 14992,
@@ -64,7 +64,7 @@
     "dram_traffic_reduction_pct": 11.188811188811187,
     "memory_footprint_savings_pct": 34.74654377880184,
     "overlap_efficiency_pct": 1.7240052335873162,
-    "compile_time_ms": 40.882238987251185,
+    "compile_time_ms": 42.06489298667293,
     "max_numerical_diff": 2.386822143402023e-06,
     "baseline": {
       "total_cycles": 17560,
@@ -93,7 +93,7 @@
     "dram_traffic_reduction_pct": 12.689841376982791,
     "memory_footprint_savings_pct": 31.9490325625295,
     "overlap_efficiency_pct": 1.9589939404000996,
-    "compile_time_ms": 72.6158059987938,
+    "compile_time_ms": 76.42625999869779,
     "max_numerical_diff": 0.0,
     "baseline": {
       "total_cycles": 33048,
@@ -122,7 +122,7 @@
     "dram_traffic_reduction_pct": 11.940298507462687,
     "memory_footprint_savings_pct": 31.818181818181824,
     "overlap_efficiency_pct": 1.8516987682896584,
-    "compile_time_ms": 39.884597004856914,
+    "compile_time_ms": 46.04545400070492,
     "max_numerical_diff": 3.951732903614835e-07,
     "baseline": {
       "total_cycles": 16784,
@@ -151,7 +151,7 @@
     "dram_traffic_reduction_pct": 0.0,
     "memory_footprint_savings_pct": 42.47787610619469,
     "overlap_efficiency_pct": 0.0,
-    "compile_time_ms": 24.888552012271248,
+    "compile_time_ms": 27.384476008592173,
     "max_numerical_diff": 0.0,
     "baseline": {
       "total_cycles": 5880,

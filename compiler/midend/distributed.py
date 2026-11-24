@@ -7,7 +7,7 @@ Implements distributed model parallelism across multiple NPU devices:
 """
 
 from typing import List, Tuple
-from frontend import Graph, Tensor, OpNode
+from compiler.frontend import Graph, Tensor, OpNode
 
 class DistributedDeviceContext:
     def __init__(self, world_size: int = 2):

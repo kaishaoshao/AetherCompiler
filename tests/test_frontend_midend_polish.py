@@ -15,12 +15,12 @@ Tests:
 """
 
 import sys
-from frontend import (
+from compiler.frontend import (
     Graph, Tensor, ops,
     DType, to_dtype, promote_types,
     FLOAT32, FLOAT16, BFLOAT16, INT8, INT4
 )
-from midend import (
+from compiler.midend import (
     CanonicalizePass,
     CommonSubexpressionEliminationPass,
     LayoutTransformPass,

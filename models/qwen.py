@@ -9,7 +9,7 @@ Features distinctive to Qwen:
 """
 
 from typing import Tuple
-from frontend import Graph, Tensor, Module, Linear, RMSNorm, SwiGLU, ops
+from compiler.frontend import Graph, Tensor, Module, Linear, RMSNorm, SwiGLU, ops
 
 class QwenAttention(Module):
     """Qwen-style Multi-Head Attention with RoPE and QKV Biases."""

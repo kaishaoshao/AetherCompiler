@@ -167,7 +167,7 @@ class PassRegistry:
         """Lazily imports middle-end passes to populate registry if empty."""
         if not cls._registry:
             try:
-                import midend  # noqa: F401
+                import compiler.midend as midend  # noqa: F401
             except ImportError:
                 pass
 
