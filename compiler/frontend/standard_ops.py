@@ -205,7 +205,15 @@ def register_standard_ops():
         name="relu",
         traits={OpTrait.ELEMENTWISE},
         infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
-        eval_ref_fn=_ref_relu
+        eval_ref_fn=_ref_relu,
+        emit_c_fn=lambda node, ctx: [
+            f"        float* in  = (float*)(dram_base + {node.inputs[0].allocated_offset});",
+            f"        float* out = (float*)(dram_base + {node.outputs[0].allocated_offset});",
+            f"        for (int i = 0; i < {node.inputs[0].num_elements}; ++i) {{",
+            f"            float v = in[i];",
+            f"            out[i] = v > 0.0f ? v : 0.0f;",
+            f"        }}"
+        ]
     ))
 
     # RMSNorm
@@ -227,7 +235,15 @@ def register_standard_ops():
         name="silu",
         traits={OpTrait.ELEMENTWISE},
         infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
-        eval_ref_fn=_ref_silu
+        eval_ref_fn=_ref_silu,
+        emit_c_fn=lambda node, ctx: [
+            f"        float* in  = (float*)(dram_base + {node.inputs[0].allocated_offset});",
+            f"        float* out = (float*)(dram_base + {node.outputs[0].allocated_offset});",
+            f"        for (int i = 0; i < {node.inputs[0].num_elements}; ++i) {{",
+            f"            float v = in[i];",
+            f"            out[i] = v / (1.0f + (float)exp(-(double)v));",
+            f"        }}"
+        ]
     ))
 
     # GeLU
