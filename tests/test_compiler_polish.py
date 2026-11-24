@@ -25,7 +25,7 @@ from compiler.frontend import (
 from compiler.frontend.ops import ShapeMismatchError, broadcast_shapes
 from compiler.frontend.standard_ops import _ref_add, _ref_mul
 from compiler.midend import DeadCodeEliminationPass
-from compiler import ZenNPUCompiler
+from compiler import AetherCompiler
 
 
 def test_shape_contracts():
@@ -169,7 +169,7 @@ def test_tile_boundary_clamping_unaligned_shapes():
     graph.set_outputs([out_relu])
 
     print(f"  [Unaligned Shape] Compiling [{M}x{K}] @ [{K}x{N}] + [{N}]...")
-    compiler = ZenNPUCompiler(sram_kb=16, num_cores=4)
+    compiler = AetherCompiler(sram_kb=16, num_cores=4)
     artifact = compiler.compile(graph)
 
     print(f"  [Code Generation] Emitted assembly with boundary-safe 2D DMA.")
@@ -212,7 +212,7 @@ def test_adaptive_decode_mode_parallelism():
     graph.add_node(node_mm)
     graph.set_outputs([out_mm])
 
-    compiler = ZenNPUCompiler(sram_kb=16, num_cores=4)
+    compiler = AetherCompiler(sram_kb=16, num_cores=4)
     artifact = compiler.compile(graph)
 
     # Verify that the generated code switches to column-wise N partitioning

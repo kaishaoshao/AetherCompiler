@@ -42,7 +42,7 @@ from compiler.extensions import (
     build_triton_fused_gelu,
     build_tilelang_gemm_relu
 )
-from compiler import ZenNPUCompiler, CompiledArtifact
+from compiler import AetherCompiler, CompiledArtifact
 from runtime import (
     VirtualNPUSimulator,
     flatten,
@@ -92,12 +92,12 @@ def assign_naive_memory_offsets(graph: Graph, alignment: int = 64) -> int:
 def run_benchmark_for_model(
     model_name: str,
     builder_fn,
-    compiler: ZenNPUCompiler
+    compiler: AetherCompiler
 ) -> Tuple[ComparisonReport, float, float]:
     """
     Runs full comparative benchmark for a given model:
     1. Builds high-level baseline graph.
-    2. Runs compiler passes via ZenNPUCompiler to produce optimized artifact.
+    2. Runs compiler passes via AetherCompiler to produce optimized artifact.
     3. Runs NPU microarchitecture profiler for both.
     4. Executes both graphs on VirtualNPUSimulator with identical inputs.
     5. Verifies bit-exact numerical equality.
@@ -108,7 +108,7 @@ def run_benchmark_for_model(
     baseline_graph = res_base[0] if isinstance(res_base, tuple) else res_base
     naive_bytes = assign_naive_memory_offsets(baseline_graph)
 
-    # 2. Build and Optimize Pipeline Graph via ZenNPUCompiler Driver
+    # 2. Build and Optimize Pipeline Graph via AetherCompiler Driver
     res_opt = builder_fn()
     opt_graph = res_opt[0] if isinstance(res_opt, tuple) else res_opt
     artifact = compiler.compile(opt_graph)
@@ -242,7 +242,7 @@ def main():
     parser.add_argument("--json-out", type=str, default=default_json, help="Path to save JSON benchmark output")
     args = parser.parse_args()
 
-    compiler = ZenNPUCompiler(
+    compiler = AetherCompiler(
         sram_kb=args.sram_kb,
         num_cores=args.num_cores,
         freq_ghz=1.0,

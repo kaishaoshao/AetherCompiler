@@ -131,7 +131,7 @@ hal_dma_writeback(dram_c, sram_c);
 
 ### 3. 动态负载均衡自适应切换算法
 
-Zen-NPU 编译调度器在识别到 $M < \text{num\_cores}$ 时，自动触发**自适应切分切换机制**:
+Aether 编译调度器在识别到 $M < \text{num\_cores}$ 时，自动触发**自适应切分切换机制**:
 
 ```
                        Check Input Batch / Sequence Length: M

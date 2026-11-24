@@ -8,7 +8,7 @@ Comprehensive verification of:
 3. Hardware invariant proofs (e.g. SRAM capacity verification).
 4. Divisibility and loop-guard elimination for tiled loops (Mojo/MAX optimization).
 5. Dynamic shape propagation across computational graphs (RMO -> MO).
-6. End-to-end compilation with ZenNPUCompiler and execution across multiple dynamic sequence lengths.
+6. End-to-end compilation with AetherCompiler and execution across multiple dynamic sequence lengths.
 """
 
 import os
@@ -28,7 +28,7 @@ from compiler.frontend import (
     Graph, Tensor, SymbolicDim, StridedLayout, ops
 )
 from compiler.midend import TilingAndPipelinePass, MemoryPlanningPass
-from compiler import ZenNPUCompiler
+from compiler import AetherCompiler
 
 
 def test_symbolic_algebra():
@@ -199,9 +199,9 @@ def test_dynamic_graph_compilation_and_execution(solver: SymbolicConstraintSolve
     for line in mlir_text.split("\n")[:8]:
         print(f"    {line}")
 
-    # 2. Compile through ZenNPUCompiler with the solver attached
-    print(f"\n  [Compilation] Compiling dynamic graph via ZenNPUCompiler...")
-    compiler = ZenNPUCompiler(sram_kb=16, num_cores=4, solver=solver)
+    # 2. Compile through AetherCompiler with the solver attached
+    print(f"\n  [Compilation] Compiling dynamic graph via AetherCompiler...")
+    compiler = AetherCompiler(sram_kb=16, num_cores=4, solver=solver)
     artifact = compiler.compile(graph)
 
     print(f"  [Compiled Artifact] Peak Planned Memory Footprint: {artifact.planned_bytes:,} Bytes (Guaranteed Safe for S <= 2048)")

@@ -76,7 +76,7 @@
 
 ## 二、 芯片组合拓扑图论形式化建模 (Topology Graph Modeling)
 
-在 `ir/chip_composition.py` 中，Zen-NPU 建立了严格的面向对象与图论拓扑模型：
+在 `ir/chip_composition.py` 中，Aether 建立了严格的面向对象与图论拓扑模型：
 
 ### 1. 模块化芯片节点 (`Chiplet` 与 `ChipRole`)
 
@@ -216,4 +216,4 @@ $$\text{Cost}_{\text{total}} = \text{ComputeCycles}(\text{Engine}) + \text{Trans
 ================================================================================
 ```
 
-该规范宣告了 Zen-NPU 编译器中端全面完成从“单体芯片假设”向“**以存储互联为骨架的超异构芯片组合**”的系统级飞跃。
+该规范宣告了 Aether 编译器中端全面完成从“单体芯片假设”向“**以存储互联为骨架的超异构芯片组合**”的系统级飞跃。

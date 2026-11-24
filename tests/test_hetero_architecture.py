@@ -6,7 +6,7 @@ Verifies:
 2. Data Movement Primitives (1D DMA, 2D Strided DMA, NoC Multicast) & Cycle Estimation.
 3. Declarative Heterogeneous Target Architecture (TargetArchitecture, ComputeEngine, FixedASIC).
 4. Capability-Driven Heterogeneous Operator Dispatching (ASIC Routing vs Systolic NPU vs Scalar CPU).
-5. End-to-End Heterogeneous Compilation via ZenNPUCompiler(target=...).
+5. End-to-End Heterogeneous Compilation via AetherCompiler(target=...).
 """
 
 import sys
@@ -29,7 +29,7 @@ from compiler.ir import (
     TargetArchitecture
 )
 from compiler.midend import FlowDispatchPass
-from compiler import ZenNPUCompiler
+from compiler import AetherCompiler
 
 
 def test_1_memory_hierarchy_modeling():
@@ -177,11 +177,11 @@ def test_4_heterogeneous_flow_module_ir():
 
 def test_5_end_to_end_hetero_compilation():
     print("=" * 70)
-    print(" [Phase 5/5] Testing ZenNPUCompiler End-to-End Compilation with Hetero Target...")
+    print(" [Phase 5/5] Testing AetherCompiler End-to-End Compilation with Hetero Target...")
     print("=" * 70)
 
     target = TargetArchitecture.create_zen_heterogeneous_v2()
-    compiler = ZenNPUCompiler(target=target)
+    compiler = AetherCompiler(target=target)
 
     assert compiler.num_cores == 4
     assert compiler.sram_kb == 32  # Inferred from Local_SRAM (32KB)

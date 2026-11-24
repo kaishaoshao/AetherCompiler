@@ -43,7 +43,7 @@
 
 ## 一、 动态 Pass 注册表与文本化流水线架构
 
-借鉴 LLVM 现代 PassManager 与 MLIR 方言驱动管线设计，Zen-NPU 编译器摒弃了硬编码执行顺序，提供了松耦合、可自省的 `PassRegistry` 体系。
+借鉴 LLVM 现代 PassManager 与 MLIR 方言驱动管线设计，Aether 编译器摒弃了硬编码执行顺序，提供了松耦合、可自省的 `PassRegistry` 体系。
 
 ```
                                   Textual Pipeline String
@@ -256,7 +256,7 @@ $$\text{LinearIndex}(i, j) = \text{base\_offset} + i \times \text{stride}_0 + j 
 
 ## 七、 总结与算法协同效应
 
-通过上述五大核心算法的链式协同，Zen-NPU 编译器中端实现了显著的软硬件收益：
+通过上述五大核心算法的链式协同，Aether 编译器中端实现了显著的软硬件收益：
 
 | 优化算法 | 核心作用点 | 理论/实测硬件收益 |
 | :--- | :--- | :--- |

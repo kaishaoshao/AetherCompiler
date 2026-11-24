@@ -46,7 +46,7 @@
 如果编译器只生成计算指令（`matmul`, `add`），而把数据搬运隐蔽在硬件 Cache 缺失仲裁中：
 - 内存总线会出现无法预测的死锁与拥塞；
 - 算力阵列因为等待数据而出现大面积“气泡（Bubbles）”。
-**Zen-NPU 编译器的核心突破就是将数据搬运作为显式 IR 节点直接编译、排程并分配时间线信号量**。
+**Aether 编译器的核心突破就是将数据搬运作为显式 IR 节点直接编译、排程并分配时间线信号量**。
 
 ---
 
@@ -147,7 +147,7 @@ $$\text{Cycles} = \max(\text{Lat}_{\text{src\_read}}, \text{Lat}_{\text{dst\_wri
 
 ### 1. 时间线信号量 (Timeline Semaphores) 状态机
 
-借鉴 Vulkan 与 IREE HAL 的先进理念，Zen-NPU 抛弃了传统二值信号量（Binary Semaphores），采用**单调递增的 64 位时间线信号量**:
+借鉴 Vulkan 与 IREE HAL 的先进理念，Aether 抛弃了传统二值信号量（Binary Semaphores），采用**单调递增的 64 位时间线信号量**:
 
 ```
 Timeline Value:  0 ──────────> 1 ──────────> 2 ──────────> 3 ──────────> 4
@@ -159,7 +159,7 @@ Events:         [Boot]     [DMA Tile 0]  [Compute 0]   [DMA Tile 1]  [Compute 1]
 
 ### 2. 基于信用点的环形缓冲区 (Credit-Based Circular Buffers)
 
-在 Tenstorrent Tensix 和 Zen-NPU 的片上 SRAM 中，Mover 与 Compute 之间通过**信用点环形缓冲区**交互：
+在 Tenstorrent Tensix 和 Aether 的片上 SRAM 中，Mover 与 Compute 之间通过**信用点环形缓冲区**交互：
 - 缓冲区划分出 $K$ 个槽位（Slots）；
 - 初始状态 Compute 拥有 0 个有效数据块信用点，Mover 拥有 $K$ 个空闲槽位信用点；
 - Mover 搬入一块后递增有效数据信用点，Compute 消费完一块后递增空闲槽位信用点；

@@ -49,7 +49,7 @@
 
 ```
 +-------------------------------------------------------------------------------+
-|                       Zen-NPU Memory-Centric Philosophy                       |
+|                       Aether Memory-Centric Philosophy                       |
 +-------------------------------------------------------------------------------+
 |   Old World (Compute-Centric):                                                |
 |     Compute IR  --> Instruction Selection --> Register Allocation             |
@@ -65,7 +65,7 @@
 
 ### 2. 存算分离与解耦访问-执行 (DAE) 原理
 
-Zen-NPU 编译器中下层全面贯彻 **解耦访问-执行 (Decoupled Access-Execute, DAE)** 机制：
+Aether 编译器中下层全面贯彻 **解耦访问-执行 (Decoupled Access-Execute, DAE)** 机制：
 - **Mover 线程 (搬运前端)**: 专门驱动 1D/2D DMA、NoC 路由器以及内存控制器，负责在片外非易失 Flash/DRAM 与片上 SRAM 之间进行异步张量分块搬运。
 - **Compute 线程 (计算后端)**: 专心处理片上 Scratchpad 中的紧凑张量瓦片，执行脉动阵列乘法或 ASIC 硬化流水。
 - **时间线同步与零气泡流水**: 两者之间绝不产生全局阻塞式自旋等待，而是通过硬件时间线信号量（Timeline Semaphore）维持 Ping-Pong 双缓冲状态机，使计算时间完全掩盖在数据搬运延迟之后。
@@ -74,7 +74,7 @@ Zen-NPU 编译器中下层全面贯彻 **解耦访问-执行 (Decoupled Access-E
 
 ## 二、 多层次存储介质形式化建模 (Storage Media Hierarchy)
 
-在 Zen-NPU 编译器 IR 中，存储介质由 `ir/memory_space.py` 中的 `MemorySpace` 和 `MemoryTier` 联合建模。
+在 Aether 编译器 IR 中，存储介质由 `ir/memory_space.py` 中的 `MemorySpace` 和 `MemoryTier` 联合建模。
 
 ### 1. 存储空间枚举体系 (`MemorySpace`)
 
@@ -155,7 +155,7 @@ $$\text{Cycles}_{\text{PIM}} = \max\left(1, \left\lfloor \frac{\text{Bytes}}{256
 
 ### 3. 时间线信号量与双缓冲流水线重叠
 
-Zen-NPU 编译器为数据搬运生成显式的 HAL 异步时间线命令：
+Aether 编译器为数据搬运生成显式的 HAL 异步时间线命令：
 ```
 [HAL.CMD.DMA_2D_STRIDED]  HBM -> Local_SRAM_Buffer_0 (Signal Sema=1)
 [HAL.CMD.WAIT_SEMA]       Wait Sema=1
@@ -168,7 +168,7 @@ Zen-NPU 编译器为数据搬运生成显式的 HAL 异步时间线命令：
 
 ## 四、 声明式超异构芯片与计算引擎架构 (Declarative Target SoC)
 
-未来的芯片一定是复合异构的。在 `ir/target_desc.py` 中，Zen-NPU 确立了**声明式异构描述**体系，允许在不重写编译器代码的前提下，通过纯数据驱动方式定义全新的芯片拓扑。
+未来的芯片一定是复合异构的。在 `ir/target_desc.py` 中，Aether 确立了**声明式异构描述**体系，允许在不重写编译器代码的前提下，通过纯数据驱动方式定义全新的芯片拓扑。
 
 ### 1. 五类计算引擎分类 (`EngineKind`)
 
@@ -202,7 +202,7 @@ ComputeEngine(
 
 ### 3. Zen-Ultra-Hetero 超异构超算芯片设计样例
 
-Zen-NPU 内置了一个面向万亿大模型的参考超算架构 `TargetArchitecture.create_zen_ultra_heterogeneous()`：
+Aether 内置了一个面向万亿大模型的参考超算架构 `TargetArchitecture.create_zen_ultra_heterogeneous()`：
 
 ```mermaid
 graph TB
@@ -330,7 +330,7 @@ module @Hetero_Superchip_Flow attributes {flow.version = 1} {
 | Google TPU Mosaic | Explicit DMA, 2D Strided    | HBM + 16~32MB Vector SRAM  | Matrix (MXU) + VPU     |
 | Groq TSP          | Spatial Instruction Streams | 230MB Distributed SRAM     | Slice-based Functional |
 | AMD Versal AIE    | Cascade Stream + AIE DMA    | Local Data Mem + MemTile   | VLIW Vector + Scalar   |
-| Zen-NPU (本项目)  | DAE 2D DMA + NoC Multicast  | 3D DRAM + HBF + PIM + SRAM | CPU + NPU + ASIC + PIM |
+| Aether (本项目)  | DAE 2D DMA + NoC Multicast  | 3D DRAM + HBF + PIM + SRAM | CPU + NPU + ASIC + PIM |
 +-------------------+-----------------------------+----------------------------+------------------------+
 ```
 
@@ -340,7 +340,7 @@ module @Hetero_Superchip_Flow attributes {flow.version = 1} {
   - 每个 Tensix 核心内置 5 个微型 RISC-V 核心：2 个专职数据搬运（Reader / Writer）、1 个 Unpack 引擎、1 个 Math 计算引擎、1 个 Pack 引擎。
   - 数据搬运与计算完全物理隔离，通过局部 L1 SRAM 中的 **Circular Buffer (环形缓冲区)** 进行基于信用点（Credit-based）的握手。
   - 片上采用 2D Mesh 动态 NoC，支持单点发往多核心的硬件级 Multicast 数据包。
-- **对 Zen-NPU 的借鉴**:
+- **对 Aether 的借鉴**:
   - 本项目中的 `DataMoverType.NOC_MULTICAST` 与 `DataMoverType.STREAMING_FIFO` 即是 Tensix 数据包广播与环形流水的形式化建模。
 
 ### 2. Google TPU Mosaic / XLA (显式异步 DMA + 向量/矩阵分离)
@@ -349,8 +349,8 @@ module @Hetero_Superchip_Flow attributes {flow.version = 1} {
   - TPU（v4/v5e）将计算引擎拆分为脉动阵列矩阵计算单元（MXU）与通用向量处理单元（VPU）。
   - 存储上严格区分为片外 HBM、片上向量内存（VMEM，32MB）与标量通用内存（SMEM）。
   - 在软件层，Google 演进出了 **Mosaic MLIR Dialect**，编译器必须显式生成 `tpu.async_copy`、异步信号量等待和精确分块调度，严禁使用隐式硬件缓存命中机制。
-- **对 Zen-NPU 的借鉴**:
-  - Zen-NPU 的 Level 2 TIR / MemRef 阶段采用完全相同的确定性分配哲学：所有 SRAM 瓦片均具有静态基址偏移（Static Offset Allocation），完全消除运行时 Cache 颠簸风险。
+- **对 Aether 的借鉴**:
+  - Aether 的 Level 2 TIR / MemRef 阶段采用完全相同的确定性分配哲学：所有 SRAM 瓦片均具有静态基址偏移（Static Offset Allocation），完全消除运行时 Cache 颠簸风险。
 
 ### 3. Groq TSP (超确定性空间张量流 + 无缓存显式流转)
 
@@ -358,8 +358,8 @@ module @Hetero_Superchip_Flow attributes {flow.version = 1} {
   - Groq 抛弃了传统的指令缓存、乱序执行和硬件仲裁器，将整个芯片设计为一维流水处理片（Functional Slices）。
   - 芯片内置 230MB 高带宽分布式 SRAM，数据像流水一样在空间寄存器之间单向流动。
   - 编译器在编译期对每一根导线、每一个时钟周期的寄存器传递都做出完全确定性的排程（Cycle-Accurate Static Scheduling）。
-- **对 Zen-NPU 的借鉴**:
-  - 启发了 Zen-NPU 的传输周期精确预估模型：在 `MemoryHierarchy.estimate_transfer_cycles` 中，传输延迟被建模为精确常数，为高层多阶段流水线排程提供量化依据。
+- **对 Aether 的借鉴**:
+  - 启发了 Aether 的传输周期精确预估模型：在 `MemoryHierarchy.estimate_transfer_cycles` 中，传输延迟被建模为精确常数，为高层多阶段流水线排程提供量化依据。
 
 ### 4. AMD Versal AIE / MLIR-AIE (2D 阵列 + 级联流 + 内存瓦片)
 
@@ -367,21 +367,21 @@ module @Hetero_Superchip_Flow attributes {flow.version = 1} {
   - AMD Versal AI Engine 是一个由数百个 VLIW 核心构成的 2D 瓦片阵列。
   - 每个核心拥有私有的 32KB 数据内存，相邻核心可以直连共享；阵列底部设有专用的 Memory Tile（每块 512KB SRAM）与跨阵列 DMA。
   - 核心之间提供 **级联流水线 (Cascade Stream)**，高精度累加值可以直接穿过物理引脚流向邻居核心而无需落入存储。
-- **对 Zen-NPU 的借鉴**:
-  - Zen-NPU 的 `L2_Cluster_SRAM` 与 `WEIGHT_FIFO` 设计直接对应 AIE 的 Memory Tile 与级联总线机制。
+- **对 Aether 的借鉴**:
+  - Aether 的 `L2_Cluster_SRAM` 与 `WEIGHT_FIFO` 设计直接对应 AIE 的 Memory Tile 与级联总线机制。
 
 ### 5. Modular MAX / Mojo (高可扩展异构驱动抽象)
 
 - **核心机制**:
   - Modular MAX 将计算图的高层数学语义与底层硬件拓扑完全解耦。通过在 MLIR 体系中自建分层 Dialect，MAX 能在保持高层拓扑不变的情况下，动态插入目标硬件的专用数据搬运指令与内存空间标签。
-- **对 Zen-NPU 的借鉴**:
-  - Zen-NPU 的 `TargetArchitecture` 与 `FlowDispatchPass` 实现了完全相同的目标可插拔性：同一个计算图，在传入标准 NPU SoC 时分发给脉动阵列，而在传入 Ultra-Hetero SoC 时则能自适应地将 RMSNorm 分发给专用 ASIC、将算子分发给近存 PIM。
+- **对 Aether 的借鉴**:
+  - Aether 的 `TargetArchitecture` 与 `FlowDispatchPass` 实现了完全相同的目标可插拔性：同一个计算图，在传入标准 NPU SoC 时分发给脉动阵列，而在传入 Ultra-Hetero SoC 时则能自适应地将 RMSNorm 分发给专用 ASIC、将算子分发给近存 PIM。
 
 ---
 
 ## 七、 总结与路线演进规划
 
-通过 `ir/memory_space.py`、`ir/target_desc.py` 与 `midend/flow_dispatch.py` 的协同抽象，Zen-NPU 编译器实现了：
+通过 `ir/memory_space.py`、`ir/target_desc.py` 与 `midend/flow_dispatch.py` 的协同抽象，Aether 编译器实现了：
 1. **全景存储介质建模**: 从易失高速 3D DRAM、非易失不对称高密 HBF 闪存、低功耗 LPDDR5X，到零总线开销的 PIM 近存 Banks；
 2. **硬件搬运原语完备化**: 涵盖 1D/2D DMA、NoC 组播、稀疏聚集/分散与流式 FIFO；
 3. **声明式芯片拓扑与自动能力路由**: 彻底摆脱对特定单体加速器的硬编码依赖，实现多引擎分层分发。

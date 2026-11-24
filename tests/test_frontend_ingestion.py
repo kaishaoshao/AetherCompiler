@@ -6,7 +6,7 @@ Verifies the complete ingestion pipeline:
 1. HuggingFace SafeTensors binary file serialization, parsing, and graph weight binding.
 2. PyTorch 2.0 FX Graph specification ingestion via FXImporter.
 3. Bidirectional MLIR textual parsing via MLIRParser.
-4. Downstream compilation of ingested graphs through ZenNPUCompiler to RV64 machine code.
+4. Downstream compilation of ingested graphs through AetherCompiler to RV64 machine code.
 """
 
 import os
@@ -30,7 +30,7 @@ from compiler.frontend import (
     MLIRParser,
     parse_mlir_text
 )
-from compiler import ZenNPUCompiler
+from compiler import AetherCompiler
 
 def test_safetensors_roundtrip():
     print("=" * 80)
@@ -114,9 +114,9 @@ def test_fx_importer_and_compilation():
     for n in graph.nodes:
         print(f"    * Node '{n.name}' ({n.op_type}): {[t.name for t in n.inputs]} -> {[t.name for t in n.outputs]}")
 
-    # Now feed this ingested PyTorch Graph directly into ZenNPUCompiler!
-    print(f"\n  [Compiler Lowering] Driving ingested PyTorch Graph through ZenNPUCompiler...")
-    compiler = ZenNPUCompiler(sram_kb=16, num_cores=4)
+    # Now feed this ingested PyTorch Graph directly into AetherCompiler!
+    print(f"\n  [Compiler Lowering] Driving ingested PyTorch Graph through AetherCompiler...")
+    compiler = AetherCompiler(sram_kb=16, num_cores=4)
     artifact = compiler.compile(graph)
 
     print(f"  [Compiled Artifact] Fused node count: {len(artifact.fused_graph.nodes)} (Fusion active)")
@@ -157,8 +157,8 @@ module @Imported_DeepSeek_Block {
     print(f"  [Parsed Nodes] : {[(n.name, n.op_type) for n in parsed_graph.nodes]}")
     print(f"  [Parsed Outputs]: {[t.name for t in parsed_graph.outputs]}")
 
-    # Compile the parsed graph through ZenNPUCompiler
-    compiler = ZenNPUCompiler(sram_kb=16, num_cores=4)
+    # Compile the parsed graph through AetherCompiler
+    compiler = AetherCompiler(sram_kb=16, num_cores=4)
     artifact = compiler.compile(parsed_graph)
     print(f"  [Compilation Success] Compiled into RV64 target artifact with DRAM={artifact.planned_bytes}B")
     print("  >>> MLIR Bidirectional Parsing Roundtrip Verified Successfully! <<<\n")

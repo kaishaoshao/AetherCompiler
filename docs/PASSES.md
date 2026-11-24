@@ -1,12 +1,12 @@
-# Zen-NPU Compiler Passes Reference Manual
+# Aether Compiler Passes Reference Manual
 
-本文档详细记录 Zen-NPU 编译器中端所有已注册优化与降阶 Passes 的设计原理、不变量契约、参数模式及 IR 变换示例。
+本文档详细记录 Aether 编译器中端所有已注册优化与降阶 Passes 的设计原理、不变量契约、参数模式及 IR 变换示例。
 
 ---
 
 ## 1. Pass 基础设施体系架构
 
-Zen-NPU 采用类似 **LLVM / MLIR** 的解耦 Pass 注册与流水线驱动机制：
+Aether 采用类似 **LLVM / MLIR** 的解耦 Pass 注册与流水线驱动机制：
 
 ```
                       PassRegistry (全局注册表)
@@ -188,4 +188,4 @@ class MyCustomOptimizationPass:
 
 注册完成后，该 Pass 立即支持：
 1. 包含在 `PassRegistry.list_passes()` 与自动生成的文档表格中；
-2. 直接通过字符串流水线调用：`ZenNPUCompiler(pipeline="my-custom-opt{threshold=0.8},fusion,dce")`。
+2. 直接通过字符串流水线调用：`AetherCompiler(pipeline="my-custom-opt{threshold=0.8},fusion,dce")`。

@@ -5,7 +5,7 @@ Validates:
 1. Pass Registration & Metadata Discovery (PassInfo, Dialect Stages, Aliases).
 2. Dynamic Pipeline String Parsing (parse_pipeline with types, nested scopes, and option blocks).
 3. Factory & Pipeline Execution (PassManager.from_pipeline_string).
-4. Configurable End-to-End Compiler Compilation via ZenNPUCompiler(pipeline="...").
+4. Configurable End-to-End Compiler Compilation via AetherCompiler(pipeline="...").
 5. Self-Documenting Pass Table Generation.
 """
 
@@ -25,7 +25,7 @@ from compiler import (
     PassInfo,
     register_pass,
     parse_pipeline,
-    ZenNPUCompiler
+    AetherCompiler
 )
 from compiler.midend import (
     ConstantFoldingAndPrepackPass,
@@ -164,11 +164,11 @@ def test_3_pass_manager_instantiation():
 
 def test_4_compiler_driver_dynamic_pipeline():
     print("\n" + "=" * 70)
-    print(" [Phase 4/5] Testing ZenNPUCompiler Dynamic Pipeline Configuration...")
+    print(" [Phase 4/5] Testing AetherCompiler Dynamic Pipeline Configuration...")
     print("=" * 70)
 
     # 1. Custom pipeline without prepack (e.g. only fusion and dce)
-    compiler_custom = ZenNPUCompiler(
+    compiler_custom = AetherCompiler(
         sram_kb=16,
         num_cores=4,
         pipeline="fusion,dce"

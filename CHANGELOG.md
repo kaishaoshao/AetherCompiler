@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the **Zen-NPU AI Graph Compiler (TinyGC-RISCV)** project will be documented in this file.
+All notable changes to the **Aether AI Graph Compiler (TinyGC-RISCV)** project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -17,8 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Created `test_chip_composition.py` (6/6 phases passing 100%).
   - Added technical manual `docs/arch/05_CHIP_COMPOSITION_AND_DATA_ROUTING.md`.
   - Added architectural guide `docs/arch/06_OPEN_SOURCE_BLUEPRINT_AND_IMPLEMENTATION_GUIDE.md` synthesizing AMD MLIR-AIE, Tenstorrent TT-Metalium, Google IREE, and Chiplet compiler methodologies into a 4-layer unified blueprint.
-- **Modular Compiler & Architecture Documentation Library (`docs/` / `docx/`)**:
-  - Established structured subdirectories `docs/compiler/` and `docs/arch/` (with `docx/` alias) decoupling middle-end compilation from backend chip targets and focusing on storage media and data movement.
+- **Modular Compiler & Architecture Documentation Library (`docs/` / `docs/`)**:
+  - Established structured subdirectories `docs/compiler/` and `docs/arch/` (with `docs/` alias) decoupling middle-end compilation from backend chip targets and focusing on storage media and data movement.
   - **Compiler Algorithms & Paradigms Series (`docs/compiler/`)**:
     - `01_COMPILER_PHILOSOPHY_AND_PARADIGMS.md`: Modern AI compiler paradigms, middle-end decoupling from concrete chips, data-movement-first philosophy, DAE, and cross-compiler study (LLVM, MLIR, TVM, IREE, Modular MAX).
     - `02_PASS_INFRASTRUCTURE_AND_OPTIMIZATIONS.md`: Textual pipeline parsing, constant folding & 4D tile pre-packing, horizontal QKV fusion (66.7% read reduction), pattern-based vertical fusion (FlashAttn, SwiGLU), DCE, and interval-coloring dynamic memory reuse.
@@ -83,7 +83,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Supports stripping outer MLIR module/function wrappers such as `builtin.module(...)` and `func.func(...)`.
 - **Dynamic PassManager Pipeline Execution**:
   - Added `PassManager.add_pipeline(pipeline_spec, **default_kwargs)` and factory `PassManager.from_pipeline_string(...)`.
-  - Exposed dynamic pipeline configuration in `ZenNPUCompiler(pipeline="...")`.
+  - Exposed dynamic pipeline configuration in `AetherCompiler(pipeline="...")`.
 - **Comprehensive Verification Suite**:
   - Created `test_pass_registry.py` testing pass discovery, aliases, option block parsing, pipeline execution, compiler driver integration, and Markdown table output (5/5 phases passing 100%).
 
@@ -154,8 +154,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Unified Pipeline Manager (`PassManager`)**:
   - Sequential execution of optimization passes with millisecond-level telemetry breakdown.
   - Implemented `--print-after-all` diagnostic intermediate representation dump support.
-- **Unified Compiler Driver (`ZenNPUCompiler`)**:
-  - Encapsulated target hardware microarchitecture configuration, pass pipeline execution, code generation, and simulation into `ZenNPUCompiler.compile()`.
+- **Unified Compiler Driver (`AetherCompiler`)**:
+  - Encapsulated target hardware microarchitecture configuration, pass pipeline execution, code generation, and simulation into `AetherCompiler.compile()`.
   - Returned self-contained executable artifact (`CompiledArtifact`).
 
 ---

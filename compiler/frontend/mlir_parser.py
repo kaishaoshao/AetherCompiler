@@ -4,7 +4,7 @@ Frontend Component: MLIR Dialect Text Parser.
 Parses MLIR textual representations (such as Level 1 graph.*, tosa.*, or linalg.*)
 back into native `frontend.Graph` computation graphs.
 Completes the bidirectional loop:
-Graph -> to_mlir_text() -> Text -> MLIRParser -> Graph -> ZenNPUCompiler -> RV64.
+Graph -> to_mlir_text() -> Text -> MLIRParser -> Graph -> AetherCompiler -> RV64.
 """
 
 import re

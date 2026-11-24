@@ -23,7 +23,7 @@
   - [3. Apache TVM: 循环嵌套与调度原语 (Schedule Primitives)](#3-apache-tvm-循环嵌套与调度原语-schedule-primitives)
   - [4. Google IREE: 执行流、异步工作组与时间线信号量](#4-google-iree-执行流异步工作组与时间线信号量)
   - [5. Modular MAX / Mojo: 动态符号化与分层张量代数](#5-modular-max--mojo-动态符号化与分层张量代数)
-- [五、 Zen-NPU 编译器的工程实践范型](#五-zen-npu-编译器的工程实践范型)
+- [五、 Aether 编译器的工程实践范型](#五-zen-npu-编译器的工程实践范型)
 
 ---
 
@@ -65,7 +65,7 @@
 
 ## 二、 编译器三层解耦体系：前端、中端、后端
 
-现代工业级 AI 编译器（如 Modular MAX、Google IREE、Zen-NPU）遵循严格的三层解耦架构：
+现代工业级 AI 编译器（如 Modular MAX、Google IREE、Aether）遵循严格的三层解耦架构：
 
 ### 1. 前端 (Frontend): 高层数学语义表达 (RMO)
 
@@ -103,7 +103,7 @@
 
 ### 2. 解耦访问-执行 (Decoupled Access-Execute, DAE) 原理
 
-Zen-NPU 编译器中下层的核心设计哲学是 **DAE（Decoupled Access-Execute）**：
+Aether 编译器中下层的核心设计哲学是 **DAE（Decoupled Access-Execute）**：
 
 ```
                 +-------------------------------------------------------+
@@ -137,9 +137,9 @@ Zen-NPU 编译器中下层的核心设计哲学是 **DAE（Decoupled Access-Exec
 
 ---
 
-## 五、 Zen-NPU 编译器的工程实践范型
+## 五、 Aether 编译器的工程实践范型
 
-Zen-NPU 编译器（TinyGC-RISCV）融合了上述架构的最佳设计：
+Aether 编译器（TinyGC-RISCV）融合了上述架构的最佳设计：
 
 1. **汲取 Modular MAX 的符号化与内存规划**:
    - 实现了基于 Presburger 线性算术的 `SymInt` 符号约束求解器，在动态输入下数学证明循环守卫消除（Loop Guard Elimination）。
