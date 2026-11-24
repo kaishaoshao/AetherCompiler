@@ -7,7 +7,7 @@ optimization passes, or backend code generators.
 """
 
 from typing import Dict, Any, Callable, Tuple
-from frontend import Graph, Tensor, Module
+from compiler.frontend import Graph, Tensor, Module
 from .config_shims import ConfigShim, StandardModelConfig
 from .mlp import MLP, build_mlp_graph
 from .transformer import TransformerBlock, build_transformer_block_graph

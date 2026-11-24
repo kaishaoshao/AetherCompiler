@@ -255,31 +255,28 @@ python3 main.py
 
 ### 2. 运行微架构硬件性能基准测试
 ```bash
-python3 benchmark.py
+bash scripts/run_benchmarks.sh
+# 或单独运行指定基准脚本：
+python3 benchmarks/benchmark.py
+python3 benchmarks/benchmark_hetero_composition.py
 ```
-> 自动输出格式化的性能吞吐对比表与周期分解，并在根目录下输出 `benchmark_results.json`。
+> 自动输出格式化的性能吞吐对比表与周期分解，并在 `benchmarks/` 目录下输出 `benchmark_results.json`。
 
 ### 3. 执行模块专项测试套件
 ```bash
-# 1. 验证声明式芯片组合拓扑、Dijkstra 跨芯片数据路由与多 Die 存储安置
-python3 test_chip_composition.py
+# 一键运行全部单元测试：
+bash scripts/run_all_tests.sh
 
-# 2. 验证可扩展多级存储介质、数据搬运原语与异构固定算子分派
-python3 test_hetero_architecture.py
-
-# 3. 验证端到端自回归推理引擎与 Paged KV-Cache 生成循环 (Prefill -> Decode Loop -> Sampler)
-python3 test_inference_engine.py
-
-# 4. 验证 LLVM/MLIR PassRegistry 与文本化流水线
-python3 test_pass_registry.py
-
-# 5. 验证形状静态契约、多维广播、DCE 与 2D DMA 边界安全
-python3 test_compiler_polish.py
-
-# 6. 验证 SymInt 全动态符号约束求解与循环守卫消除
-python3 test_sym_int_solver.py
-
-# 7. 验证 SafeTensors、PyTorch FX 与 MLIR 多源前端摄入
-python3 test_frontend_ingestion.py
+# 或单独执行各个专项测试：
+python3 tests/test_chip_composition.py
+python3 tests/test_declarative_blueprint.py
+python3 tests/test_multi_die_dispatch.py
+python3 tests/test_frontend_midend_polish.py
+python3 tests/test_hetero_architecture.py
+python3 tests/test_inference_engine.py
+python3 tests/test_pass_registry.py
+python3 tests/test_compiler_polish.py
+python3 tests/test_sym_int_solver.py
+python3 tests/test_frontend_ingestion.py
 ```
 All tests pass 100% out-of-the-box!

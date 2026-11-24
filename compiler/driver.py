@@ -7,21 +7,15 @@ Presents a cohesive, production-grade compiler entry point:
 - Emits C ABI driver and freestanding RISC-V 64-bit Custom-0 assembly
 - Provides unified simulation, profiling, and MLIR-style diagnostic export
 """
+from __future__ import annotations
 
 import os
 import subprocess
 from typing import Dict, List, Tuple, Optional, Any, Union
-from frontend import Graph, Tensor
-from backend import RiscvNpuCodeGenerator
-from runtime.simulator import VirtualNPUSimulator
-from runtime.command_buffer import TimelineSemaphore, CommandBuffer, AsyncDeviceQueue
-from runtime.profiler import (
-    NPUHardwareProfile,
-    PerformanceMetrics,
-    ComparisonReport,
-    NPUPerformanceProfiler
-)
-from ir import LoopModule, CommandModule, SymbolicConstraintSolver
+from runtime.profiler import NPUHardwareProfile, NPUPerformanceProfiler
+from compiler.frontend import Graph, Tensor
+from compiler.backend import RiscvNpuCodeGenerator
+from compiler.ir import LoopModule, CommandModule, SymbolicConstraintSolver
 from .pass_manager import PassManager, PassRegistry
 
 class CompiledArtifact:
@@ -105,6 +99,7 @@ class CompiledArtifact:
 
     def execute_simulation(self, inputs: Dict[str, Any]) -> List[Any]:
         """Runs bit-exact execution on Virtual NPU Simulator."""
+        from runtime.simulator import VirtualNPUSimulator
         sim = VirtualNPUSimulator(self.planned_bytes)
         for inp in self.fused_graph.inputs:
             if inp.name in inputs:
@@ -117,6 +112,7 @@ class CompiledArtifact:
         Specializes dynamic graph with concrete runtime bindings (SymInt RMO -> Concrete MO)
         and executes simulation.
         """
+        from runtime.simulator import VirtualNPUSimulator
         concrete_graph = self.fused_graph.resolve_shapes(dynamic_bindings)
         mem_planner = PassRegistry.create_pass("memory-planning", alignment=64)
         _, dynamic_planned_bytes, _ = mem_planner.run(concrete_graph)
@@ -128,11 +124,12 @@ class CompiledArtifact:
         return [sim.read_tensor(out) for out in concrete_graph.outputs]
 
 
-class ZenNPUCompiler:
+class LLMCompiler:
     """
-    Unified AI Graph Compiler Driver for Zen-NPU.
-    Absorbs the architectural pillars of Mojo/MAX, IREE, and TVM.
-    Supports SymInt Dynamic Symbolic Shapes and Presburger Constraint Solving!
+    Unified AI Graph Compiler Driver (LLMGraphCompiler / LLMCompiler).
+    Absorbs the architectural pillars of Mojo/MAX, IREE, MLIR, and TVM.
+    Supports SymInt Dynamic Symbolic Shapes, Heterogeneous Multi-Die Chiplets,
+    and Progressive Dialect Lowering.
     """
     def __init__(
         self,
@@ -220,7 +217,7 @@ class ZenNPUCompiler:
         # 3. Flow Dispatch Formation (IREE Flow Dialect with Heterogeneous Routing)
         flow_pass = PassRegistry.create_pass("flow-dispatch", num_npu_cores=self.num_cores, target=self.target)
         executables, dispatch_regions = flow_pass.run(fused_graph)
-        from midend.flow_dispatch import FlowModule
+        from compiler.midend.flow_dispatch import FlowModule
         flow_module = FlowModule(name=f"{graph.name}_flow", executables=executables, dispatch_regions=dispatch_regions)
 
         # 4. Progressive Lowering to Loop IR (TIR)
@@ -267,3 +264,9 @@ class ZenNPUCompiler:
             num_cores=self.num_cores,
             solver=active_solver
         )
+
+
+# Ergonomic & Backward-Compatible Aliases
+LLMGraphCompiler = LLMCompiler
+Compiler = LLMCompiler
+ZenNPUCompiler = LLMCompiler

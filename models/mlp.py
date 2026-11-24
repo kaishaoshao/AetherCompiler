@@ -4,7 +4,7 @@ Classic dense feed-forward network with linear projections and activations.
 """
 
 from typing import Tuple
-from frontend import Graph, Tensor, Module, Linear, relu
+from compiler.frontend import Graph, Tensor, Module, Linear, relu
 
 class MLP(Module):
     def __init__(self, in_features: int, hidden_features: int, out_features: int, name: str = "mlp"):

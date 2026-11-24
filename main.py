@@ -20,7 +20,7 @@ import subprocess
 # Ensure local packages are on sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from frontend import Graph, Tensor, StridedLayout, SymbolicDim, ops
+from compiler.frontend import Graph, Tensor, StridedLayout, SymbolicDim, ops
 from models import (
     build_mlp_graph,
     build_transformer_block_graph,
@@ -31,7 +31,7 @@ from models import (
     WeightAdapter,
     ConfigShim
 )
-from extensions import (
+from compiler.extensions import (
     build_triton_fused_gelu,
     build_tilelang_gemm_relu
 )
@@ -66,8 +66,10 @@ def compile_and_verify_model(model_name: str, graph: Graph, input_tensor: Tensor
 
     # 3. Machine Code Emission
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    c_path = os.path.join(base_dir, f"generated_{model_name}.c")
-    asm_path = os.path.join(base_dir, f"generated_{model_name}.s")
+    out_dir = os.path.join(base_dir, "build")
+    os.makedirs(out_dir, exist_ok=True)
+    c_path = os.path.join(out_dir, f"{model_name}.c")
+    asm_path = os.path.join(out_dir, f"{model_name}.s")
 
     artifact.save_c(c_path)
     artifact.save_asm(asm_path)

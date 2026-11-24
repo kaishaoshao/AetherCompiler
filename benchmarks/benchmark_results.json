@@ -1,0 +1,176 @@
+[
+  {
+    "model_name": "MLP (Dense)",
+    "speedup_ratio": 1.8638838475499093,
+    "cycle_reduction_pct": 46.34858812074002,
+    "dram_traffic_reduction_pct": 34.64140730717185,
+    "memory_footprint_savings_pct": 49.70873786407767,
+    "overlap_efficiency_pct": 3.9232781168265043,
+    "compile_time_ms": 35.338771995157,
+    "max_numerical_diff": 0.0,
+    "baseline": {
+      "total_cycles": 4108,
+      "compute_cycles": 928,
+      "dma_cycles": 3180,
+      "dram_bytes": 94592,
+      "peak_memory_bytes": 65920,
+      "achieved_tflops": 0.09696592015579357,
+      "arithmetic_intensity": 4.211096075778078
+    },
+    "optimized": {
+      "total_cycles": 2204,
+      "compute_cycles": 202,
+      "dma_cycles": 2092,
+      "overlapped_cycles": 90,
+      "dram_bytes": 61824,
+      "peak_memory_bytes": 33152,
+      "achieved_tflops": 0.18073321234119782,
+      "arithmetic_intensity": 6.443064182194617
+    }
+  },
+  {
+    "model_name": "LLaMA Block",
+    "speedup_ratio": 1.4195625414260014,
+    "cycle_reduction_pct": 29.555763073639273,
+    "dram_traffic_reduction_pct": 13.075780089153044,
+    "memory_footprint_savings_pct": 30.61855670103093,
+    "overlap_efficiency_pct": 2.076958738989337,
+    "compile_time_ms": 38.530478996108286,
+    "max_numerical_diff": 7.775711351892811e-05,
+    "baseline": {
+      "total_cycles": 14992,
+      "compute_cycles": 3456,
+      "dma_cycles": 11536,
+      "dram_bytes": 344576,
+      "peak_memory_bytes": 248320,
+      "achieved_tflops": 0.09337033084311631,
+      "arithmetic_intensity": 4.062407132243685
+    },
+    "optimized": {
+      "total_cycles": 10561,
+      "compute_cycles": 849,
+      "dma_cycles": 9936,
+      "overlapped_cycles": 224,
+      "dram_bytes": 299520,
+      "peak_memory_bytes": 172288,
+      "achieved_tflops": 0.13254502414544075,
+      "arithmetic_intensity": 4.673504273504274
+    }
+  },
+  {
+    "model_name": "Qwen2.5 Block",
+    "speedup_ratio": 1.3752055760043855,
+    "cycle_reduction_pct": 27.283599088838272,
+    "dram_traffic_reduction_pct": 11.188811188811187,
+    "memory_footprint_savings_pct": 34.74654377880184,
+    "overlap_efficiency_pct": 1.7240052335873162,
+    "compile_time_ms": 42.06489298667293,
+    "max_numerical_diff": 2.386822143402023e-06,
+    "baseline": {
+      "total_cycles": 17560,
+      "compute_cycles": 3936,
+      "dma_cycles": 13624,
+      "dram_bytes": 402688,
+      "peak_memory_bytes": 277760,
+      "achieved_tflops": 0.0805904328018223,
+      "arithmetic_intensity": 3.514303877940242
+    },
+    "optimized": {
+      "total_cycles": 12769,
+      "compute_cycles": 969,
+      "dma_cycles": 12024,
+      "overlapped_cycles": 224,
+      "dram_bytes": 357632,
+      "peak_memory_bytes": 181248,
+      "achieved_tflops": 0.11082841256167279,
+      "arithmetic_intensity": 3.9570508231925556
+    }
+  },
+  {
+    "model_name": "DeepSeek-V3 Block",
+    "speedup_ratio": 1.399034798069596,
+    "cycle_reduction_pct": 28.52214960058097,
+    "dram_traffic_reduction_pct": 12.689841376982791,
+    "memory_footprint_savings_pct": 31.9490325625295,
+    "overlap_efficiency_pct": 1.9589939404000996,
+    "compile_time_ms": 76.42625999869779,
+    "max_numerical_diff": 0.0,
+    "baseline": {
+      "total_cycles": 33048,
+      "compute_cycles": 7488,
+      "dma_cycles": 25560,
+      "dram_bytes": 758528,
+      "peak_memory_bytes": 542464,
+      "achieved_tflops": 0.09063955458726701,
+      "arithmetic_intensity": 3.949038137023287
+    },
+    "optimized": {
+      "total_cycles": 23622,
+      "compute_cycles": 1862,
+      "dma_cycles": 22232,
+      "overlapped_cycles": 472,
+      "dram_bytes": 662272,
+      "peak_memory_bytes": 369152,
+      "achieved_tflops": 0.1268078909491152,
+      "arithmetic_intensity": 4.522999613451875
+    }
+  },
+  {
+    "model_name": "Gemma Block",
+    "speedup_ratio": 1.4136275583256128,
+    "cycle_reduction_pct": 29.260009532888464,
+    "dram_traffic_reduction_pct": 11.940298507462687,
+    "memory_footprint_savings_pct": 31.818181818181824,
+    "overlap_efficiency_pct": 1.8516987682896584,
+    "compile_time_ms": 46.04545400070492,
+    "max_numerical_diff": 3.951732903614835e-07,
+    "baseline": {
+      "total_cycles": 16784,
+      "compute_cycles": 4096,
+      "dma_cycles": 12688,
+      "dram_bytes": 377344,
+      "peak_memory_bytes": 264704,
+      "achieved_tflops": 0.08462154432793137,
+      "arithmetic_intensity": 3.7639077340569878
+    },
+    "optimized": {
+      "total_cycles": 11873,
+      "compute_cycles": 1009,
+      "dma_cycles": 11088,
+      "overlapped_cycles": 224,
+      "dram_bytes": 332288,
+      "peak_memory_bytes": 180480,
+      "achieved_tflops": 0.1196233470900362,
+      "arithmetic_intensity": 4.27426810477658
+    }
+  },
+  {
+    "model_name": "Hybrid Triton+TileLang",
+    "speedup_ratio": 2.4019607843137254,
+    "cycle_reduction_pct": 58.36734693877551,
+    "dram_traffic_reduction_pct": 0.0,
+    "memory_footprint_savings_pct": 42.47787610619469,
+    "overlap_efficiency_pct": 0.0,
+    "compile_time_ms": 27.384476008592173,
+    "max_numerical_diff": 0.0,
+    "baseline": {
+      "total_cycles": 5880,
+      "compute_cycles": 4576,
+      "dma_cycles": 1304,
+      "dram_bytes": 37120,
+      "peak_memory_bytes": 28928,
+      "achieved_tflops": 0.024903401360544215,
+      "arithmetic_intensity": 3.9448275862068964
+    },
+    "optimized": {
+      "total_cycles": 2448,
+      "compute_cycles": 1144,
+      "dma_cycles": 1304,
+      "overlapped_cycles": 0,
+      "dram_bytes": 37120,
+      "peak_memory_bytes": 16640,
+      "achieved_tflops": 0.05981699346405228,
+      "arithmetic_intensity": 3.9448275862068964
+    }
+  }
+]

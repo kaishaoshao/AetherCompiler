@@ -9,7 +9,7 @@ Features:
 """
 
 from typing import Tuple
-from frontend import Graph, Tensor, Module, RMSNorm, MultiHeadSelfAttention, SwiGLU, ops
+from compiler.frontend import Graph, Tensor, Module, RMSNorm, MultiHeadSelfAttention, SwiGLU, ops
 
 class TransformerBlock(Module):
     def __init__(self, dim: int, num_heads: int, hidden_dim: int, name: str = "block0"):

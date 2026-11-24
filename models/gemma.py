@@ -8,7 +8,7 @@ Features distinctive to Gemma:
 """
 
 from typing import Tuple
-from frontend import Graph, Tensor, Module, Linear, RMSNorm, GeGLU, ops
+from compiler.frontend import Graph, Tensor, Module, Linear, RMSNorm, GeGLU, ops
 
 class GemmaAttention(Module):
     """Gemma-style Multi-Head Attention with RoPE."""
