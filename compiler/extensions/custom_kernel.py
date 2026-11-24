@@ -1,7 +1,7 @@
 """
 Custom Kernel Extension Subsystem (借鉴 MAX Custom Extensions & IREE Flow External Dispatch).
 
-Enables inserting user-defined micro-kernels (e.g. Triton, TileLang, Mojo) into the graph compiler:
+Enables inserting user-defined micro-kernels (CUDA, OpenAI Triton, Microsoft TileLang, Mojo) into the graph compiler:
 1. First-class citizen in the Graph DAG (OpNode with inputs/outputs)
 2. Integrated into Global Dynamic Memory Planning (offset allocation)
 3. Integrated into Flow Dispatch (Workgroup & Grid mapping)
@@ -12,11 +12,11 @@ from typing import List, Dict, Any, Callable, Tuple, Optional
 from compiler.frontend import Tensor, OpNode, OpRegistry, OpDefinition, OpTrait
 
 class CustomKernel:
-    """Descriptor for an external or custom DSL kernel (Triton / TileLang / Mojo)."""
+    """Descriptor for an external or custom DSL kernel (CUDA / Triton / TileLang / Mojo)."""
     def __init__(
         self,
         name: str,
-        framework: str, # "triton", "tilelang", "mojo"
+        framework: str, # "cuda", "triton", "tilelang", "mojo"
         inputs: List[Tensor],
         outputs: List[Tensor],
         grid: Tuple[int, ...],
