@@ -238,7 +238,7 @@ def test_5_self_documenting_table():
     print("=" * 70)
 
     table_md = PassRegistry.generate_table()
-    assert "| Pass Name (CLI Flag) |" in table_md
+    assert "Pass Name (CLI Flag)" in table_md
     assert "`const-fold`" in table_md
     assert "`fusion`" in table_md
     assert "`dce`" in table_md

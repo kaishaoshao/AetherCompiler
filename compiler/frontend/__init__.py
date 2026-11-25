@@ -14,6 +14,8 @@ from .nn import Module, Parameter, Linear, RMSNorm, SwiGLU, GeGLU, MultiHeadSelf
 from .safetensors_loader import SafeTensorsFile, load_safetensors, save_safetensors
 from .fx_importer import FXImporter
 from .mlir_parser import MLIRParser, parse_mlir_text
+from .placement import placement, PlacementContext
+from .torch_importer import TorchModelImporter
 from .shape_inference import ShapeInferencePass, ShapeInferenceError
 from compiler.ir.sym_int import (
     SymExpr, SymVar, SymConst, Constraint,
@@ -32,6 +34,8 @@ __all__ = [
     "Graph", "Node", "Module", "Parameter", "Linear", "RMSNorm", "SwiGLU", "GeGLU", "MultiHeadSelfAttention",
     "SafeTensorsFile", "load_safetensors", "save_safetensors",
     "FXImporter",
+    "TorchModelImporter",
+    "placement", "PlacementContext",
     "MLIRParser", "parse_mlir_text",
     "ShapeInferencePass", "ShapeInferenceError"
 ]

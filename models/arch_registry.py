@@ -58,15 +58,15 @@ class AutoModelForCausalLM:
 
         # 3. Build graph based on model type
         if cfg.model_type == "mlp":
-            return builder_fn(batch_size=seq_len * batch_size, in_dim=cfg.dim, hidden_dim=cfg.intermediate_dim, out_dim=cfg.dim)
+            res = builder_fn(batch_size=seq_len * batch_size, in_dim=cfg.dim, hidden_dim=cfg.intermediate_dim, out_dim=cfg.dim)
         elif cfg.model_type == "llama":
-            return builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, hidden_dim=cfg.intermediate_dim)
+            res = builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, hidden_dim=cfg.intermediate_dim)
         elif cfg.model_type == "gemma":
-            return builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, intermediate_dim=cfg.intermediate_dim)
+            res = builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, intermediate_dim=cfg.intermediate_dim)
         elif cfg.model_type == "qwen":
-            return builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, intermediate_dim=cfg.intermediate_dim)
+            res = builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, intermediate_dim=cfg.intermediate_dim)
         elif cfg.model_type == "deepseek":
-            return builder_fn(
+            res = builder_fn(
                 batch_size=batch_size,
                 seq_len=seq_len,
                 dim=cfg.dim,
@@ -77,3 +77,63 @@ class AutoModelForCausalLM:
             )
         else:
             raise NotImplementedError(f"Builder dispatch for {cfg.model_type}")
+
+        return res[0] if isinstance(res, tuple) else res
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_dir: str,
+        seq_len: int = 16,
+        batch_size: int = 1
+    ) -> Tuple[Graph, int]:
+        """
+        Loads a real HuggingFace checkpoint directory (config.json + .safetensors),
+        instantiates the model Graph, and binds the weights into the tensors.
+        Returns:
+            graph: The computational Graph with weight tensors populated.
+            bound_weights_count: Total number of weight tensors successfully bound.
+        """
+        import os
+        import json
+        from compiler.frontend.safetensors_loader import SafeTensorsFile
+        from .weight_adapter import WeightAdapter
+
+        config_path = os.path.join(model_dir, "config.json")
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Missing config.json in {model_dir}")
+
+        with open(config_path, "r", encoding="utf-8") as f:
+            hf_config = json.load(f)
+
+        graph = cls.from_config(hf_config, seq_len=seq_len, batch_size=batch_size)
+
+        # Look for safetensors files
+        st_files = [f for f in os.listdir(model_dir) if f.endswith(".safetensors")]
+        bound_count = 0
+        if st_files:
+            st_path = os.path.join(model_dir, st_files[0])
+            st = SafeTensorsFile.load(st_path)
+
+            raw_weights: Dict[str, Any] = {}
+            for name in st.tensors:
+                raw_weights[name] = st.get_tensor_data(name)
+
+            model_type = hf_config.get("model_type", "llama")
+            adapted_weights = WeightAdapter.adapt(raw_weights, model_type)
+
+            for t in graph.get_all_tensors():
+                # Direct match
+                if t.name in adapted_weights:
+                    t.initial_value = adapted_weights[t.name]
+                    bound_count += 1
+                else:
+                    # Normalized matching for layers
+                    for k, val in adapted_weights.items():
+                        clean_k = k.replace(".", "_")
+                        if t.name == clean_k or clean_k.endswith(t.name) or t.name.endswith(clean_k):
+                            t.initial_value = val
+                            bound_count += 1
+                            break
+
+        return graph, bound_count

@@ -20,6 +20,20 @@ class OpNode:
         self.name = name or f"{op_type}_{id(self) % 1000}"
         self.attrs = attrs or {}
 
+        # Auto-inherit active declarative placement context
+        from .placement import PlacementContext
+        curr_p = PlacementContext.get_current_placement()
+        if curr_p and "placement" not in self.attrs:
+            self.attrs["placement"] = curr_p
+        curr_tp = PlacementContext.get_current_tp_world_size()
+        if curr_tp > 1 and "tp_world_size" not in self.attrs:
+            self.attrs["tp_world_size"] = curr_tp
+
+        if "placement" in self.attrs:
+            for out in self.outputs:
+                if hasattr(out, "attrs") and "placement" not in out.attrs:
+                    out.attrs["placement"] = self.attrs["placement"]
+
     def __repr__(self) -> str:
         in_names = ", ".join(t.name for t in self.inputs)
         out_names = ", ".join(t.name for t in self.outputs)
