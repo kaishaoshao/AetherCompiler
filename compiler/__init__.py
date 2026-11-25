@@ -34,7 +34,7 @@ from .driver import (
 )
 
 # Convenience re-exports of primary symbols
-from .frontend import Graph, Tensor, ops, DType, FLOAT32, FLOAT16, BFLOAT16, INT8, INT4, ShapeInferencePass, ShapeInferenceError
+from .frontend import Graph, Tensor, ops, DType, FLOAT32, FLOAT16, BFLOAT16, INT8, INT4, ShapeInferencePass, ShapeInferenceError, placement, TorchModelImporter
 from .ir import (
     ChipComposition, MemorySpace, MemoryTier, InterconnectType,
     sym_var, sym_const, SymExpr, SymbolicConstraintSolver
@@ -44,7 +44,8 @@ from .midend import (
     ConstantFoldingPass,
     WeightQuantizationPass,
     TensorParallelPass,
-    TilingAutotunerPass
+    TilingAutotunerPass,
+    DataMovementRoutingPass
 )
 
 __all__ = [
@@ -66,6 +67,7 @@ __all__ = [
     "WeightQuantizationPass",
     "TensorParallelPass",
     "TilingAutotunerPass",
+    "DataMovementRoutingPass",
     "ShapeInferencePass",
     "ShapeInferenceError",
 
@@ -80,6 +82,8 @@ __all__ = [
     "Graph",
     "Tensor",
     "ops",
+    "placement",
+    "TorchModelImporter",
     "DType",
     "FLOAT32",
     "FLOAT16",

@@ -108,7 +108,8 @@ class Tensor:
         name: str,
         shape: Tuple[DimType, ...],
         dtype: Union[str, Any] = "float32",
-        layout: Optional[StridedLayout] = None
+        layout: Optional[StridedLayout] = None,
+        attrs: Optional[Dict[str, Any]] = None
     ):
         from .types import to_dtype
         self.name = name
@@ -119,6 +120,7 @@ class Tensor:
         self.allocated_offset: Optional[int] = None  # Global DRAM/HBM byte offset
         self.initial_value: Optional[List[float]] = None
         self._solver: Optional[SymbolicConstraintSolver] = None
+        self.attrs: Dict[str, Any] = attrs or {}
 
         # Initialize layout
         self.layout = layout or StridedLayout(shape)
@@ -198,7 +200,7 @@ class Tensor:
 
         concrete_tuple = tuple(concrete_shape)
         layout = StridedLayout(concrete_tuple)
-        t = Tensor(self.name, concrete_tuple, self.dtype, layout=layout)
+        t = Tensor(self.name, concrete_tuple, self.dtype, layout=layout, attrs=dict(self.attrs))
         t.allocated_offset = self.allocated_offset
         return t
 

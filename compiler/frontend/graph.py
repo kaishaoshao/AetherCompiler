@@ -3,7 +3,7 @@ Frontend: Computation Graph DAG structure.
 Manages topological sorting, legalizing dynamic shapes (RMO -> MO), and graph traversal.
 """
 
-from typing import List, Dict, Set, Optional
+from typing import List, Dict, Set, Optional, Any
 from .tensor import Tensor
 from .ops import OpNode
 
@@ -84,6 +84,35 @@ class Graph:
 
         concrete_graph.set_outputs([get_concrete(t) for t in self.outputs])
         return concrete_graph
+
+    def apply_rewrite(self, pattern_or_pass: Any) -> "Graph":
+        """
+        Mojo / MAX-style high-level declarative pattern rewriting API.
+        Applies a pattern (e.g. FlashAttentionPattern, SwiGLUPattern)
+        or a pass to the graph and mutates the current graph in-place,
+        returning self for fluent chaining:
+            g.apply_rewrite(FlashAttentionPattern()).apply_rewrite(SwiGLUPattern())
+        """
+        from compiler.midend.fusion import FusionPattern, OperatorFusionPass
+        if isinstance(pattern_or_pass, FusionPattern):
+            fusion_pass = OperatorFusionPass(patterns=[pattern_or_pass])
+            fused = fusion_pass.run(self)
+            self.nodes = fused.nodes
+            self.inputs = fused.inputs
+            self.outputs = fused.outputs
+        elif hasattr(pattern_or_pass, "run"):
+            result = pattern_or_pass.run(self)
+            if isinstance(result, Graph):
+                self.nodes = result.nodes
+                self.inputs = result.inputs
+                self.outputs = result.outputs
+        elif callable(pattern_or_pass):
+            result = pattern_or_pass(self)
+            if isinstance(result, Graph):
+                self.nodes = result.nodes
+                self.inputs = result.inputs
+                self.outputs = result.outputs
+        return self
 
     def print_graph(self, title: str = "Computation Graph"):
         print(f"\n==================== {title} ({self.name}) ====================")

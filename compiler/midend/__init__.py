@@ -13,6 +13,7 @@ from .layout_transform import LayoutTransformPass
 from .quantization import WeightQuantizationPass, QuantizedWeightTensor, WeightQuantizer
 from .distributed import TensorParallelPass, TensorParallelPlanner, DistributedDeviceContext
 from .autotuner import TilingAutotunerPass, AnalyticalHardwareCostModel, TilingAutotuner
+from .data_movement import DataMovementRoutingPass, DataMovementReport
 
 __all__ = [
     "OperatorFusionPass",
@@ -42,5 +43,7 @@ __all__ = [
     "DistributedDeviceContext",
     "TilingAutotunerPass",
     "AnalyticalHardwareCostModel",
-    "TilingAutotuner"
+    "TilingAutotuner",
+    "DataMovementRoutingPass",
+    "DataMovementReport"
 ]
