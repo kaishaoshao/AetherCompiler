@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.15.0] - 2026-11-26
+
+### Added
+- **Unified Aether Graph IR Framework (Stages A, B, C — Converging All 4 Architecture Pillars)**:
+  - **Architecture Spec (`docs/compiler/06_UNIFIED_AETHER_GRAPH_IR_ARCHITECTURE.md`)**: Formalized how all 4 Pillars converge onto one strongly-typed, verifiable, round-trippable Graph IR core.
+  - **Stage A — Typed IR Core, SSA Def-Use, Regions & Verifier (`compiler/frontend/ir_core.py`, `tensor.py`, `ops.py`, `graph.py`, `registry.py`, `llm_ops.py`)**:
+    - Added strongly typed `TensorType(shape, dtype, layout, memory_space, sharding)`, `ShardingSpec`, `PlacementSpec`, `OpEffect` (`PURE`, `READ`, `WRITE`, `ALLOC`, `FREE`, `COMM_SYNC`), and nested `Region` (`ops.call` layer reuse & `ops.cond` dynamic Prefill/Decode branching).
+    - Added SSA Def-Use chains (`Tensor.producer`, `Tensor.users`), Graph `version` tracking, and atomic mutation primitives (`insert_before`, `insert_after`, `replace_all_uses_with` [RAUW], `erase_node`, `rebuild_def_use`).
+    - Added `GraphVerifier` (`graph.verify(strict_storage=..., composition=...)`) checking SSA uniqueness, acyclicity, Def-Use consistency, placement validity, and strict cross-tier storage legality.
+    - Added lossless textual IR round-trip (`Graph.to_aether_ir()` <-> `Graph.from_aether_ir()`) preserving all 4 Pillars.
+  - **Stage B — Unified Mid-End Engine (`compiler/context.py`, `compiler/rewriter.py`, `compiler/pass_manager.py`, `compiler/extensions/custom_kernel.py`)**:
+    - Added `CompileContext` & version-aware cached `AnalysisManager` (`liveness`, `memory_pressure`, `post_dominators`).
+    - Added unified `PatternRewriter` & benefit-ordered `RewriteDriver` (`rewrite-driver`), and `CustomKernel.as_rewrite_pattern(match_fn, benefit=10)` so CUDA/Triton/TileLang custom kernels compete directly inside graph rewriting.
+    - Upgraded `PassManager` with `verify_after_each=True` automatic per-pass `GraphVerifier` checks.
+  - **Stage C — Unified 5-Stage `AetherPipeline` (`compiler/pipeline.py`)**:
+    - Orchestrates Stage 1 (RewriteDriver + CustomKernel + Canonicalize/CSE/DCE) → Stage 2 (Placement/TP/CommOverlap) → Stage 3 (Remat + DMA Routing + `strict_storage=True` verify) → Stage 4 (GraphScheduler + InPlace + MemoryPlanning) → Stage 5 (Loop IR + SoftwarePipelining + Command IR) under one `CompileContext`.
+  - Added `tests/test_unified_graph_ir_framework.py` verifying all 3 stages and a full 4-Pillar LLM block (`max_diff = 0.00e+00`).
+
+### Fixed
+- **On-Chip Staged Buffer Caching & SSA Uniqueness in `DataMovementRoutingPass` (`compiler/midend/data_movement.py`)**: Added `staged_cache[(tensor_name, dst_tier)]` to reuse already-staged on-chip tensors across sibling consumers, eliminating duplicate cross-die DMA transfers and preventing duplicate SSA tensor definitions caught by `GraphVerifier`.
+- **Trait-Driven TP Elementwise Recognition (`compiler/midend/distributed.py`)**: Upgraded `TensorParallelPass._find_row_partner()` to check `OpTrait.ELEMENTWISE` via `OpRegistry` so fused ops (`fused_silu_mul`) and Pillar 4 custom kernels flow seamlessly between Column-Parallel and Row-Parallel MatMuls.
+- **Side-Effect Awareness in `DeadCodeEliminationPass` (`compiler/midend/dce.py`)**: Preserves stateful `OpEffect.WRITE` / `OpEffect.COMM_SYNC` operations (such as `paged_kv_append`) even when their outputs are unused.
+
+---
+
 ## [0.14.0] - 2026-11-26
 
 ### Added

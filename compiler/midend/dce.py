@@ -6,7 +6,7 @@ do not contribute to any model outputs.
 """
 
 from typing import Set
-from compiler.frontend import Graph, OpNode
+from compiler.frontend import Graph, OpNode, OpRegistry
 from compiler.pass_manager import register_pass
 
 @register_pass(
@@ -35,8 +35,10 @@ class DeadCodeEliminationPass:
             for node in reversed(graph.nodes):
                 if node in live_nodes:
                     continue
+                # Side-effecting ops (WRITE / COMM_SYNC) are always roots and must never be pruned!
+                has_effects = OpRegistry.has(node.op_type) and OpRegistry.get(node.op_type).has_side_effects
                 # If any output of this node is required by a live consumer or is a graph output
-                if any(out.name in live_tensors for out in node.outputs):
+                if has_effects or any(out.name in live_tensors for out in node.outputs):
                     live_nodes.add(node)
                     for inp in node.inputs:
                         if inp.name not in live_tensors:

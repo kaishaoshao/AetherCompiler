@@ -360,12 +360,15 @@ class GeneralFusionPass(CompilerPass):
             if sub_nodes[0].attrs.get("placement"):
                 region_attrs["placement"] = sub_nodes[0].attrs["placement"]
 
+            from compiler.frontend.ir_core import Region
+            region_obj = Region(f"fused_region_{region_id}", ext_inputs, sub_nodes, ext_outputs)
             region_node = OpNode(
                 op_type="fused_region",
                 inputs=ext_inputs,
                 outputs=ext_outputs,
                 name=f"fused_region_{region_id}",
                 attrs=region_attrs,
+                regions=[region_obj],
             )
             new_nodes.append(region_node)
 

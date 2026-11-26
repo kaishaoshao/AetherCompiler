@@ -1,3 +1,7 @@
+from .ir_core import (
+    OpEffect, ShardingSpec, TensorType, PlacementSpec, Region,
+    GraphVerifier, GraphVerificationError, dump_aether_ir, parse_aether_ir
+)
 from .registry import OpRegistry, OpDefinition, OpTrait
 from . import standard_ops
 from . import llm_ops
@@ -10,7 +14,7 @@ from .ops import (
     OpNode, matmul, add, relu, rmsnorm, silu, gelu, mul, softmax,
     transpose, rope, cast, pack, unpack,
     reshape, permute, concat, slice_tensor, embedding, gather, topk, attention,
-    paged_kv_append, paged_attention, moe_router, moe_combine, all_reduce
+    paged_kv_append, paged_attention, moe_router, moe_combine, all_reduce, call, cond
 )
 from .graph import Graph, Node
 from .nn import Module, Parameter, Linear, RMSNorm, SwiGLU, GeGLU, MultiHeadSelfAttention
@@ -26,6 +30,8 @@ from compiler.ir.sym_int import (
 )
 
 __all__ = [
+    "OpEffect", "ShardingSpec", "TensorType", "PlacementSpec", "Region",
+    "GraphVerifier", "GraphVerificationError", "dump_aether_ir", "parse_aether_ir",
     "OpRegistry", "OpDefinition", "OpTrait", "standard_ops",
     "Tensor", "StridedLayout", "SymbolicDim",
     "DType", "DTypeCategory", "to_dtype", "promote_types",

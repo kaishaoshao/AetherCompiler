@@ -319,9 +319,17 @@ class PassManager:
     Sequences optimization and lowering passes with timing telemetry,
     dynamic text pipeline parsing, and intermediate IR inspection.
     """
-    def __init__(self, name: str = "ZenNPU_PassPipeline", print_after_all: bool = False):
+    def __init__(
+        self,
+        name: str = "ZenNPU_PassPipeline",
+        print_after_all: bool = False,
+        verify_after_each: bool = False,
+        context: Optional[Any] = None,
+    ):
         self.name = name
         self.print_after_all = print_after_all
+        self.verify_after_each = verify_after_each
+        self.context = context
         self.passes: List[Any] = []
         self.pass_timings: Dict[str, float] = {}
 
@@ -396,6 +404,12 @@ class PassManager:
 
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             self.pass_timings[pass_name] = elapsed_ms
+
+            if self.verify_after_each and hasattr(current, "verify") and hasattr(current, "nodes"):
+                if hasattr(current, "rebuild_def_use"):
+                    current.rebuild_def_use()
+                comp = getattr(self.context, "composition", None) if self.context else None
+                current.verify(strict_storage=False, composition=comp, check_def_use=True)
 
             if self.print_after_all:
                 print("\n" + "=" * 80)

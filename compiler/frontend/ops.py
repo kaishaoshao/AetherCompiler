@@ -12,13 +12,17 @@ class OpNode:
         inputs: List[Tensor],
         outputs: List[Tensor],
         name: str = "",
-        attrs: Optional[Dict[str, Any]] = None
+        attrs: Optional[Dict[str, Any]] = None,
+        placement_spec: Optional[Any] = None,
+        regions: Optional[List[Any]] = None,
     ):
+        from .ir_core import PlacementSpec
         self.op_type = op_type
         self.inputs = inputs
         self.outputs = outputs
         self.name = name or f"{op_type}_{id(self) % 1000}"
         self.attrs = attrs or {}
+        self.regions: List[Any] = list(regions) if regions else []
 
         # Auto-inherit active declarative placement context
         from .placement import PlacementContext
@@ -28,6 +32,22 @@ class OpNode:
         curr_tp = PlacementContext.get_current_tp_world_size()
         if curr_tp > 1 and "tp_world_size" not in self.attrs:
             self.attrs["tp_world_size"] = curr_tp
+
+        # First-class strongly typed PlacementSpec synced with attrs
+        if placement_spec is not None:
+            self.placement_spec: Optional[PlacementSpec] = placement_spec
+            self.attrs["placement"] = placement_spec.chip_id
+            if placement_spec.tp_world_size > 1:
+                self.attrs["tp_world_size"] = placement_spec.tp_world_size
+        elif "placement" in self.attrs or "tp_world_size" in self.attrs:
+            self.placement_spec = PlacementSpec(
+                chip_id=self.attrs.get("placement", "systolic_npu_die"),
+                tp_world_size=int(self.attrs.get("tp_world_size", 1)),
+                shard_dim=self.attrs.get("shard_dim"),
+                dispatch_hint=self.attrs.get("dispatch_strategy", "default"),
+            )
+        else:
+            self.placement_spec = None
 
         if "placement" in self.attrs:
             for out in self.outputs:
@@ -348,3 +368,26 @@ def all_reduce(partials: List[Tensor], name: str = "") -> Tuple[OpNode, Tensor]:
     """Explicit sum all-reduce collective (MAX ADR-6: communication is a first-class node)."""
     return _single_out("all_reduce", list(partials), tuple(partials[0].shape), name, "all_reduce",
                        {"op": "sum", "world_size": len(partials)})
+
+
+def call(region: Any, args: List[Tensor], name: str = "") -> Tuple[OpNode, List[Tensor]]:
+    """Structured subgraph invocation (CallOp): reuses a compiled Region without duplicating nodes."""
+    base = name or f"call_{region.name}"
+    outs = [Tensor(f"{base}_out_{i}", tuple(o.shape), o.dtype) for i, o in enumerate(region.outputs)]
+    node = OpNode("call", list(args), outs, name=base, attrs={"region": region, "callee": region.name}, regions=[region])
+    return node, outs
+
+
+def cond(predicate: Tensor, then_region: Any, else_region: Any, args: List[Tensor], name: str = "") -> Tuple[OpNode, List[Tensor]]:
+    """Structured dynamic branch (CondOp): selects `then_region` if predicate > 0.5 else `else_region`."""
+    base = name or f"cond_{then_region.name}_{else_region.name}"
+    outs = [Tensor(f"{base}_out_{i}", tuple(o.shape), o.dtype) for i, o in enumerate(then_region.outputs)]
+    node = OpNode(
+        "cond",
+        [predicate] + list(args),
+        outs,
+        name=base,
+        attrs={"then_region": then_region, "else_region": else_region},
+        regions=[then_region, else_region],
+    )
+    return node, outs

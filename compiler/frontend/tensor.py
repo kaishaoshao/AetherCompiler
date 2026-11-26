@@ -122,8 +122,41 @@ class Tensor:
         self._solver: Optional[SymbolicConstraintSolver] = None
         self.attrs: Dict[str, Any] = attrs or {}
 
+        # SSA Def-Use Chain pointers (maintained by Graph)
+        self.producer: Optional[Any] = None
+        self.users: List[Any] = []
+
         # Initialize layout
         self.layout = layout or StridedLayout(shape)
+
+    @property
+    def tensor_type(self):
+        """Returns the unified strongly-typed TensorType (shape, dtype, layout, memory_space, sharding)."""
+        from .ir_core import TensorType, ShardingSpec
+        sharding = self.attrs.get("sharding_spec")
+        if not isinstance(sharding, ShardingSpec):
+            sharding = ShardingSpec()
+        return TensorType(
+            shape=tuple(self.shape),
+            dtype=self.dtype,
+            layout=self.attrs.get("physical_layout", "ROW_MAJOR"),
+            memory_space=self.attrs.get("storage_tier", "3D_DRAM_Stack_Tier"),
+            sharding=sharding,
+        )
+
+    def set_tensor_type(self, tt) -> None:
+        """Applies a strongly-typed TensorType to this Tensor (keeping attrs in sync)."""
+        self.shape = tuple(tt.shape)
+        self.dtype = tt.dtype
+        self.attrs["physical_layout"] = tt.layout
+        self.attrs["storage_tier"] = tt.memory_space
+        self.attrs["sharding_spec"] = tt.sharding
+
+    def set_memory_space(self, tier_name: str) -> None:
+        self.attrs["storage_tier"] = tier_name
+
+    def set_sharding(self, sharding) -> None:
+        self.attrs["sharding_spec"] = sharding
 
     @property
     def is_dynamic(self) -> bool:
