@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 from .loop_ir import (
     Buffer, Stmt, AllocBuffer, FreeBuffer, DmaTransfer, DmaBarrier,
-    KernelCall, ForLoop, RawCodeStmt, LoopFunction, LoopModule
+    KernelCall, ForLoop, PipelineSection, RawCodeStmt, LoopFunction, LoopModule
 )
 from .command_ir import (
     Command, CmdComment, CmdDmaAsync, CmdDmaWait, CmdCustom0Op,
@@ -178,6 +178,10 @@ def lower_loop_ir_to_command_ir(
                 for s in stmt.body:
                     visit_stmt(s, indent + 1)
                 commands.append(CmdRawCode("    }"))
+            elif isinstance(stmt, PipelineSection):
+                commands.append(CmdComment(f"=== Software Pipeline {stmt.stage_name} (stages={stmt.num_stages}) ==="))
+                for s in stmt.body:
+                    visit_stmt(s, indent + 1)
             elif isinstance(stmt, RawCodeStmt):
                 commands.append(CmdRawCode(f"    {stmt.code.strip()}"))
 

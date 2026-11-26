@@ -212,7 +212,7 @@ llvm.func (机器目标代码发射)
 
 ## 六、 Agent 与开发者的核心铁律 (Core Rules for Agents)
 
-所有在本项目上工作的 AI Agent 或人类工程师，必须**无条件遵守**以下五条开发铁律：
+所有在本项目上工作的 AI Agent 或人类工程师，必须**无条件遵守**以下六条开发铁律：
 
 ### 铁律 1：严禁在前端破坏大模型高层语义
 - **禁止**在 `compiler/frontend/` 或 `aether_graph` 方言入口处将大模型复合算子（如 Attention, RMSNorm, Gated MLP）拆解为微观的逐标量三重循环。
@@ -233,3 +233,7 @@ llvm.func (机器目标代码发射)
 ### 铁律 5：双分支协同与同步守则
 - **`feat/learn` 优先**：任何核心编译优化理论与原型算法，先在 `feat/learn` 分支中用纯 Python 实现白盒验证，并通过 100% 单元测试与基准评测。
 - **`feat/llvm-mlir` 对齐**：在 `feat/llvm-mlir` 中复用 MLIR 的 C++/TableGen/Pattern 生态进行工业级重构，确保功能与 `feat/learn` 保持高度同构，绝不脱离上述四大支柱！
+
+### 铁律 6：每次代码修改必须同步更新 CHANGELOG
+- **强制记录**：每一次功能新增、优化 Pass 实现、架构重构、Bug 修复或文档体系扩展，在提交代码前**必须**同步更新根目录下的 `CHANGELOG.md`（遵循 Keep a Changelog 规范，按 `Added / Changed / Fixed` 分类注明具体改动模块、验证指标与对应测试文件）。
+- **禁止静默提交**：不允许出现“代码已提交但 `CHANGELOG.md` 未记录”的变更，确保演进脉络清晰可追溯。
