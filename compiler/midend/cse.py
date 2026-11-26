@@ -58,8 +58,10 @@ class CommonSubexpressionEliminationPass:
                 if node in nodes_to_remove:
                     continue
 
-                # Don't CSE non-deterministic or side-effectful ops
-                if node.attrs.get("side_effect", False):
+                # Don't CSE non-deterministic or side-effectful ops (OpEffect.WRITE / COMM_SYNC)
+                from compiler.frontend import OpRegistry
+                has_eff = OpRegistry.has(node.op_type) and OpRegistry.get(node.op_type).has_side_effects
+                if node.attrs.get("side_effect", False) or has_eff:
                     continue
 
                 expr_key = _get_op_expression_key(node)

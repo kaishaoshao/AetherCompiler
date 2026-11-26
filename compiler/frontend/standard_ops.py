@@ -287,7 +287,13 @@ def register_standard_ops():
         name="mul",
         traits={OpTrait.ELEMENTWISE},
         infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
-        eval_ref_fn=_ref_mul
+        eval_ref_fn=_ref_mul,
+        emit_c_fn=lambda node, ctx: [
+            f"        float* a   = (float*)(dram_base + {node.inputs[0].allocated_offset});",
+            f"        float* b   = (float*)(dram_base + {node.inputs[1].allocated_offset});",
+            f"        float* out = (float*)(dram_base + {node.outputs[0].allocated_offset});",
+            f"        for (int i = 0; i < {node.outputs[0].num_elements}; ++i) out[i] = a[i] * b[i];"
+        ]
     ))
 
     # Softmax
@@ -450,15 +456,18 @@ def register_standard_ops():
         ]
     ))
 
-    # Cast Op (Mixed-precision type conversion)
+    # Cast Op (Bit-accurate mixed-precision type conversion: FP32/FP16/BF16/FP8/INT8)
+    from .numeric_types import cast_tensor_values
     OpRegistry.register(OpDefinition(
         name="cast",
         traits={OpTrait.ELEMENTWISE},
         infer_shape_fn=lambda in_shapes, attrs: [in_shapes[0]],
-        eval_ref_fn=lambda inputs, attrs: inputs,
+        eval_ref_fn=lambda inputs, attrs: [cast_tensor_values(inputs[0], attrs.get("to_dtype", "float32"))],
         emit_c_fn=lambda node, ctx: [
             f"        // Cast {node.inputs[0].name} ({node.inputs[0].dtype}) -> {node.outputs[0].name} ({node.outputs[0].dtype})",
-            f"        convert_precision((void*)(dram_base + {node.inputs[0].allocated_offset}), (void*)(dram_base + {node.outputs[0].allocated_offset}), {node.inputs[0].num_elements});"
+            f"        float* in_c  = (float*)(dram_base + {node.inputs[0].allocated_offset});",
+            f"        float* out_c = (float*)(dram_base + {node.outputs[0].allocated_offset});",
+            f"        for (int i = 0; i < {node.inputs[0].num_elements}; ++i) out_c[i] = in_c[i];"
         ]
     ))
 

@@ -188,12 +188,14 @@ class DataMovementRoutingPass(CompilerPass):
         self,
         composition: Optional[ChipComposition] = None,
         enable_double_buffering: bool = True,
-        strict_placement: bool = False
+        strict_placement: bool = False,
+        cost_model: Optional[Any] = None,
     ):
         super().__init__()
         self.composition = composition or ChipComposition.create_modular_llm_superchip_composition()
         self.enable_double_buffering = enable_double_buffering
         self.strict_placement = strict_placement
+        self.cost_model = cost_model
         self.report = DataMovementReport()
         self._semaphore_counter = 1
 
@@ -243,7 +245,9 @@ class DataMovementRoutingPass(CompilerPass):
         return warnings
 
     def _estimate_compute_cycles(self, node: OpNode, chip_id: str) -> int:
-        """Estimates compute cycles of `node` on `chip_id` for DMA overlap analysis."""
+        """Estimates compute cycles of `node` on `chip_id` via unified cost model when present."""
+        if self.cost_model is not None:
+            return self.cost_model.estimate_compute_cycles(node, chip_id=chip_id)
         op_type = node.op_type
         if op_type in ("matmul", "fused_matmul_add", "fused_matmul_add_relu"):
             s0, s1 = node.inputs[0].shape, node.inputs[1].shape

@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.16.0] - 2026-11-26
+
+### Added
+- **Item 1 — Framework Convergence (`compiler/context.py`, `compiler/rewriter.py`, `compiler/pipeline.py`, `compiler/driver.py`, `compiler/frontend/ops.py`)**:
+  - Added single-source-of-truth `UnifiedHardwareCostModel` inside `CompileContext.cost_model` wired into `DataMovementRoutingPass`, `RematerializationAndTieringPass`, `GraphSchedulerPass`, and `ComputeCommOverlapPass` (replacing inconsistent hardcoded 128/256/512 FLOPs/cycle).
+  - Promoted `RewriteDriver` to a strict superset of legacy `OperatorFusionPass` by adding `FlashAttentionRewritePattern`, `FusedAddRMSNormRewritePattern`, `MatMulAddReLURewritePattern`, and `MatMulAddRewritePattern`.
+  - Integrated `GlobalLayoutPropagationPass`, `HorizontalFusionPass`, `FlowDispatchPass`, `SplitKMatMulPass`, `MixedPrecisionPass`, and C99 `execute_native()` into `AetherPipeline`; added `AetherCompiler.compile_unified()` and synchronized `OpNode.get_placement_chip()` / `set_placement()`.
+  - Enforced `OpEffect` side-effect ordering in `CSE` and `GraphSchedulerPass`.
+- **Item 2 — Strict `GraphVerifier` & Randomized Differential Fuzzing (`compiler/frontend/ir_core.py`, `tests/test_differential_fuzz.py`)**:
+  - Upgraded `GraphVerifier.verify()` with concrete `OpRegistry.infer_shapes()` shape contract checking, homogeneous dtype checking, and recursive nested `Region` verification.
+  - Added `tests/test_differential_fuzz.py` verifying strict rejection of malformed shapes/dtypes/regions, full LLaMA/Qwen2/DeepSeek convergence, and 30 randomized multi-chip DAGs fuzzed across optimization pipelines (worst `max_diff = 0.00e+00`).
+- **Item 3 — Lossless Round-Trip Textual IR (`compiler/frontend/ir_core.py`)**:
+  - Extended `dump_aether_ir` / `parse_aether_ir` to serialize and reconstruct nested `Region` blocks (`call`, `cond`, `fused_region`) and base64 IEEE-754 constant weights (`const_b64="..."`), bit-exact verified on execution after round-trip.
+- **Item 4 — Real Precision Semantics, FP8, AMP & KV-Cache Quantization (`compiler/frontend/numeric_types.py`, `compiler/frontend/types.py`, `compiler/midend/mixed_precision.py`, `runtime/simulator.py`)**:
+  - Added `FP8_E4M3` and `FP8_E5M2` dtypes and bit-accurate software rounding (`round_fp16`, `round_bf16`, `round_fp8_e4m3`, `round_fp8_e5m2`, `quantize_dequantize_int8`) wired directly into `cast`.
+  - Upgraded `VirtualNPUSimulator` to byte-indexed DRAM so FP8/INT8/FP16/BF16/FP32 tensors coexist without slot overlap while preserving exact In-Place aliasing.
+  - Implemented `MixedPrecisionPass` (`amp`) and `KVQuantizationPass` (`kv-quant`, 4.0× HBM compression for FP8 KV-Cache) with `tests/test_precision_amp_and_fp8.py`.
+- **Item 5 — Complete C99 `emit_c` Coverage & Native `gcc` JIT Verification (`compiler/frontend/llm_ops_c_emit.py`, `compiler/frontend/llm_ops.py`, `tests/test_native_jit_llm_ops.py`)**:
+  - Implemented self-contained C99 emitters for all 16 new LLM/shape/control-flow ops (`embedding`, `attention`, `paged_attention`, `paged_kv_append`, `fused_rope_paged_kv_append`, `moe_router`, `moe_combine`, `reshape`, `permute`, `concat`, `slice`, `gather`, `topk`, `all_reduce`, `call`, `cond`) plus `mul`.
+  - Verified live `gcc -O3 -shared -fPIC -lm` Native C JIT execution matches `VirtualNPUSimulator` (`max_diff <= 2.54e-08`).
+- **Item 6 — Authentic MLIR 3-Dialect Codebase & C++17 Verifier (`mlir/`, `compiler/backend/mlir_exporter.py`, `tests/test_mlir_dialect_export_and_cpp_verify.py`)**:
+  - Created out-of-tree LLVM/MLIR project `mlir/` with `CMakeLists.txt`, TableGen `.td` definitions for `AetherGraph`, `AetherMem`, and `AetherPlacement`, C++ MLIR passes (`SwiGLUFusionPass.cpp`, `DataMovementRoutingPass.cpp`), `aether-opt.cpp`, lit test `mlir/test/aether_full_4pillar.mlir`, and a compiled C++17 verifier `aether-ir-verify`.
+  - Implemented `export_graph_to_aether_mlir()` exporting compiled Python Graphs (including Qwen2 HF CausalLM) directly to 3-dialect MLIR validated by the CMake-built C++17 `aether-ir-verify` binary.
+- **Documentation**: Created `docs/compiler/07_UNIFICATION_AUDIT_AND_HARDENING_PLAN.md` and updated `docs/PASSES.md` with all 13 new passes.
+
+---
+
 ## [0.15.0] - 2026-11-26
 
 ### Added

@@ -13,12 +13,85 @@ and repeated per-pass liveness/dominator recomputation with:
      `SymbolicConstraintSolver`, core count, SRAM budget, verification policy, and analyses.
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from compiler.frontend import Graph, OpNode, Tensor
 from compiler.ir.chip_composition import ChipComposition
 from compiler.ir.sym_int import SymbolicConstraintSolver
+
+
+class UnifiedHardwareCostModel:
+    """
+    Single source of truth for compute, DMA, and collective cycle estimation across
+    ALL passes (`DataMovementRoutingPass`, `RematerializationAndTieringPass`,
+    `GraphSchedulerPass`, `ComputeCommOverlapPass`, `EGraphOptimizationPass`).
+    Derived directly from `ChipComposition` so every pass's cycle & speedup telemetry
+    is mutually consistent and directly comparable.
+    """
+    def __init__(
+        self,
+        composition: Optional[ChipComposition] = None,
+        num_cores: int = 4,
+        default_flops_per_cycle: float = 256.0,
+        default_bw_bytes_per_cycle: float = 32.0,
+        default_dma_latency_cycles: int = 24,
+    ):
+        self.composition = composition
+        self.num_cores = max(1, num_cores)
+        self.default_flops_per_cycle = default_flops_per_cycle
+        self.default_bw_bytes_per_cycle = default_bw_bytes_per_cycle
+        self.default_dma_latency_cycles = default_dma_latency_cycles
+
+    def chip_flops_per_cycle(self, chip_id: Optional[str] = None) -> float:
+        if self.composition is not None and chip_id and chip_id in self.composition.chips:
+            chip = self.composition.chips[chip_id]
+            engines = getattr(chip, "engines", None)
+            if engines:
+                eng_list = list(engines.values()) if isinstance(engines, dict) else list(engines)
+                macs = max((getattr(e, "macs_per_cycle", 0) or 0 for e in eng_list), default=0)
+                if macs > 0:
+                    return float(macs * 2)
+        return self.default_flops_per_cycle
+
+    def estimate_node_flops(self, node: OpNode) -> int:
+        op_type = node.op_type
+        if op_type in ("matmul", "fused_matmul_add", "fused_matmul_add_relu"):
+            s0, s1 = node.inputs[0].shape, node.inputs[1].shape
+            batch = math.prod(int(d) for d in s0[:-2]) if len(s0) > 2 else 1
+            return 2 * batch * int(s0[-2]) * int(s0[-1]) * int(s1[-1])
+        if op_type == "fused_horizontal_qkv_matmul":
+            s0 = node.inputs[0].shape
+            M, K = int(s0[-2]), int(s0[-1])
+            return sum(2 * M * int(w.shape[-1]) * K for w in node.inputs[1:])
+        if op_type in ("attention", "paged_attention", "fused_flash_attention"):
+            L, D = int(node.inputs[0].shape[-2]), int(node.inputs[0].shape[-1])
+            return 4 * L * L * D
+        return max(1, 4 * node.outputs[0].num_elements) if node.outputs else 1
+
+    def estimate_compute_cycles(self, node: OpNode, chip_id: Optional[str] = None) -> int:
+        if node.op_type in ("dma_transfer", "tier_offload", "tier_prefetch"):
+            return int(node.attrs.get("transfer_cycles", self.estimate_transfer_cycles(node.outputs[0].size_in_bytes)))
+        if node.op_type == "all_reduce":
+            ws = int(node.attrs.get("world_size", 2))
+            ring_factor = (2.0 * (ws - 1) / ws) if ws > 1 else 1.0
+            return self.default_dma_latency_cycles + max(
+                1, math.ceil((node.outputs[0].size_in_bytes * ring_factor) / self.default_bw_bytes_per_cycle)
+            )
+        chip = chip_id or (node.get_placement_chip() if hasattr(node, "get_placement_chip") else node.attrs.get("placement"))
+        flops = self.estimate_node_flops(node)
+        return max(1, math.ceil(flops / self.chip_flops_per_cycle(chip)))
+
+    def estimate_transfer_cycles(
+        self,
+        num_bytes: int,
+        bw_bytes_per_cycle: Optional[float] = None,
+        latency_cycles: Optional[int] = None,
+    ) -> int:
+        bw = bw_bytes_per_cycle if (bw_bytes_per_cycle and bw_bytes_per_cycle > 0) else self.default_bw_bytes_per_cycle
+        lat = latency_cycles if latency_cycles is not None else self.default_dma_latency_cycles
+        return lat + max(1, math.ceil(num_bytes / bw))
 
 
 @dataclass
@@ -169,3 +242,7 @@ class CompileContext:
         self.l2_sram_bytes = l2_sram_bytes
         self.verify_after_each = verify_after_each
         self.analyses = AnalysisManager()
+        self.cost_model = UnifiedHardwareCostModel(
+            composition=self.composition,
+            num_cores=self.num_cores,
+        )

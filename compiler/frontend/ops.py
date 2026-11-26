@@ -54,6 +54,40 @@ class OpNode:
                 if hasattr(out, "attrs") and "placement" not in out.attrs:
                     out.attrs["placement"] = self.attrs["placement"]
 
+    def get_placement_chip(self) -> Optional[str]:
+        """Single-source-of-truth placement query (keeps placement_spec and attrs consistent)."""
+        if "placement" in self.attrs and self.attrs["placement"]:
+            chip = self.attrs["placement"]
+            if self.placement_spec is None or self.placement_spec.chip_id != chip:
+                from .ir_core import PlacementSpec
+                self.placement_spec = PlacementSpec(
+                    chip_id=chip,
+                    tp_world_size=int(self.attrs.get("tp_world_size", 1)),
+                    shard_dim=self.attrs.get("shard_dim"),
+                    dispatch_hint=self.attrs.get("dispatch_strategy", "default"),
+                )
+            return chip
+        return self.placement_spec.chip_id if self.placement_spec is not None else None
+
+    def get_tp_world_size(self) -> int:
+        if "tp_world_size" in self.attrs:
+            return int(self.attrs["tp_world_size"])
+        return self.placement_spec.tp_world_size if self.placement_spec is not None else 1
+
+    def set_placement(self, chip_id: str, tp_world_size: Optional[int] = None):
+        """Updates placement_spec and attrs atomically so they can never diverge."""
+        from .ir_core import PlacementSpec
+        ws = tp_world_size if tp_world_size is not None else self.get_tp_world_size()
+        self.placement_spec = PlacementSpec(
+            chip_id=chip_id,
+            tp_world_size=ws,
+            shard_dim=self.attrs.get("shard_dim"),
+            dispatch_hint=self.attrs.get("dispatch_strategy", "default"),
+        )
+        self.attrs["placement"] = chip_id
+        if ws > 1:
+            self.attrs["tp_world_size"] = ws
+
     def __repr__(self) -> str:
         in_names = ", ".join(t.name for t in self.inputs)
         out_names = ", ".join(t.name for t in self.outputs)

@@ -285,41 +285,42 @@ def register_llm_ops():
     if OpRegistry.has("attention"):
         return
 
+    from .llm_ops_c_emit import (
+        emit_reshape_c, emit_permute_c, emit_concat_c, emit_slice_c,
+        emit_embedding_c, emit_gather_c, emit_topk_c,
+        emit_attention_c, emit_paged_attention_c, emit_paged_kv_append_c,
+        emit_fused_rope_paged_kv_append_c, emit_moe_router_c, emit_moe_combine_c,
+        emit_all_reduce_c, emit_call_c, emit_cond_c,
+    )
+
     reg = OpRegistry.register
-    reg(OpDefinition("reshape", set(), _infer_reshape, _ref_reshape))
-    reg(OpDefinition("permute", set(), _infer_permute, _ref_permute))
-    reg(OpDefinition("concat", set(), _infer_concat, _ref_concat))
-    reg(OpDefinition("slice", set(), _infer_slice, _ref_slice))
-    reg(OpDefinition("embedding", set(), _infer_embedding, _ref_embedding))
-    reg(OpDefinition("gather", set(), _infer_gather, _ref_gather))
-    reg(OpDefinition("topk", {OpTrait.REDUCTION}, _infer_topk, _ref_topk))
+    reg(OpDefinition("reshape", set(), _infer_reshape, _ref_reshape, emit_c_fn=emit_reshape_c))
+    reg(OpDefinition("permute", set(), _infer_permute, _ref_permute, emit_c_fn=emit_permute_c))
+    reg(OpDefinition("concat", set(), _infer_concat, _ref_concat, emit_c_fn=emit_concat_c))
+    reg(OpDefinition("slice", set(), _infer_slice, _ref_slice, emit_c_fn=emit_slice_c))
+    reg(OpDefinition("embedding", set(), _infer_embedding, _ref_embedding, emit_c_fn=emit_embedding_c))
+    reg(OpDefinition("gather", set(), _infer_gather, _ref_gather, emit_c_fn=emit_gather_c))
+    reg(OpDefinition("topk", {OpTrait.REDUCTION}, _infer_topk, _ref_topk, emit_c_fn=emit_topk_c))
 
     reg(OpDefinition(
         "attention", {OpTrait.FUSED_COMPOSITE, OpTrait.REDUCTION},
-        lambda s, a: [tuple(s[0])], _ref_attention,
-        emit_c_fn=lambda node, ctx: [
-            f"        // attention macro-op (H={node.attrs.get('num_heads')}, "
-            f"G={node.attrs.get('num_kv_heads')}, causal={node.attrs.get('causal', True)})",
-            f"        npu_sdpa_tile((float*)(dram_base + {node.outputs[0].allocated_offset}), "
-            f"(float*)(dram_base + {node.inputs[0].allocated_offset}), "
-            f"(float*)(dram_base + {node.inputs[1].allocated_offset}), "
-            f"(float*)(dram_base + {node.inputs[2].allocated_offset}));",
-        ]))
+        lambda s, a: [tuple(s[0])], _ref_attention, emit_c_fn=emit_attention_c))
     reg(OpDefinition(
         "paged_attention", {OpTrait.FUSED_COMPOSITE, OpTrait.REDUCTION},
-        lambda s, a: [tuple(s[0])], _ref_paged_attention))
+        lambda s, a: [tuple(s[0])], _ref_paged_attention, emit_c_fn=emit_paged_attention_c))
     reg(OpDefinition("paged_kv_append", set(), _same_shape, _ref_paged_kv_append,
-                     effects={OpEffect.WRITE}))
+                     emit_c_fn=emit_paged_kv_append_c, effects={OpEffect.WRITE}))
     reg(OpDefinition(
         "fused_rope_paged_kv_append", {OpTrait.FUSED_COMPOSITE},
         _same_shape, _ref_fused_rope_paged_kv_append,
-        effects={OpEffect.WRITE}))
+        emit_c_fn=emit_fused_rope_paged_kv_append_c, effects={OpEffect.WRITE}))
 
     # Structured Region & Control Flow Ops (CallOp for layer reuse, CondOp for dynamic Prefill/Decode branching)
     reg(OpDefinition(
         "call", {OpTrait.CONTROL_FLOW},
         lambda s, a: [tuple(o.shape) for o in a["region"].outputs],
         lambda inputs, attrs: attrs["region"].eval_region(inputs),
+        emit_c_fn=emit_call_c,
         effects={OpEffect.PURE},
     ))
     reg(OpDefinition(
@@ -330,17 +331,20 @@ def register_llm_ops():
             if (inputs[0][0] if isinstance(inputs[0], list) else inputs[0]) > 0.5
             else attrs["else_region"].eval_region(inputs[1:])
         ),
+        emit_c_fn=emit_cond_c,
         effects={OpEffect.PURE},
     ))
 
     reg(OpDefinition(
         "moe_router", {OpTrait.REDUCTION},
-        lambda s, a: [(s[0][0], a["top_k"]), (s[0][0], a["top_k"])], _ref_moe_router))
+        lambda s, a: [(s[0][0], a["top_k"]), (s[0][0], a["top_k"])], _ref_moe_router,
+        emit_c_fn=emit_moe_router_c))
     reg(OpDefinition(
         "moe_combine", {OpTrait.FUSED_COMPOSITE},
-        lambda s, a: [tuple(s[2])], _ref_moe_combine))
+        lambda s, a: [tuple(s[2])], _ref_moe_combine, emit_c_fn=emit_moe_combine_c))
 
-    reg(OpDefinition("all_reduce", {OpTrait.COMMUNICATION}, _same_shape, _ref_all_reduce))
+    reg(OpDefinition("all_reduce", {OpTrait.COMMUNICATION}, _same_shape, _ref_all_reduce,
+                     emit_c_fn=emit_all_reduce_c))
 
 
 register_llm_ops()
