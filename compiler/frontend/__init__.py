@@ -1,5 +1,6 @@
 from .registry import OpRegistry, OpDefinition, OpTrait
 from . import standard_ops
+from . import llm_ops
 from .tensor import Tensor, StridedLayout, SymbolicDim
 from .types import (
     DType, DTypeCategory, to_dtype, promote_types,
@@ -7,7 +8,9 @@ from .types import (
 )
 from .ops import (
     OpNode, matmul, add, relu, rmsnorm, silu, gelu, mul, softmax,
-    transpose, rope, cast, pack, unpack
+    transpose, rope, cast, pack, unpack,
+    reshape, permute, concat, slice_tensor, embedding, gather, topk, attention,
+    paged_kv_append, paged_attention, moe_router, moe_combine, all_reduce
 )
 from .graph import Graph, Node
 from .nn import Module, Parameter, Linear, RMSNorm, SwiGLU, GeGLU, MultiHeadSelfAttention
@@ -31,6 +34,8 @@ __all__ = [
     "SymbolicConstraintSolver", "sym_var", "sym_const",
     "OpNode", "matmul", "add", "relu", "rmsnorm", "silu", "gelu", "mul", "softmax",
     "transpose", "rope", "cast", "pack", "unpack",
+    "reshape", "permute", "concat", "slice_tensor", "embedding", "gather", "topk", "attention",
+    "paged_kv_append", "paged_attention", "moe_router", "moe_combine", "all_reduce",
     "Graph", "Node", "Module", "Parameter", "Linear", "RMSNorm", "SwiGLU", "GeGLU", "MultiHeadSelfAttention",
     "SafeTensorsFile", "load_safetensors", "save_safetensors",
     "FXImporter",

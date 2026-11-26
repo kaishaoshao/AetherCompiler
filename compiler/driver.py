@@ -101,6 +101,7 @@ class CompiledArtifact:
         """Runs bit-exact execution on Virtual NPU Simulator."""
         from runtime.simulator import VirtualNPUSimulator
         sim = VirtualNPUSimulator(self.planned_bytes)
+        sim.load_constants(self.fused_graph)
         for inp in self.fused_graph.inputs:
             if inp.name in inputs:
                 sim.write_tensor(inp, inputs[inp.name])
@@ -149,6 +150,7 @@ class CompiledArtifact:
         mem_planner = PassRegistry.create_pass("memory-planning", alignment=64)
         _, dynamic_planned_bytes, _ = mem_planner.run(concrete_graph)
         sim = VirtualNPUSimulator(dynamic_planned_bytes)
+        sim.load_constants(concrete_graph)
         for inp in concrete_graph.inputs:
             if inp.name in inputs:
                 sim.write_tensor(inp, inputs[inp.name])

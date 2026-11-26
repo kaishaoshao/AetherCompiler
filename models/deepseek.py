@@ -149,7 +149,11 @@ class DeepseekMoE(Module):
         self.shared_expert = SwiGLU(dim, intermediate_dim, name=f"{name}_shared_exp")
         self.register_module("shared_expert", self.shared_expert)
 
-        # 2. Routed Experts
+        # 2. Top-K Router Gate Projection: [dim, num_routed_experts]
+        self.gate = Linear(dim, num_routed_experts, bias=False, name=f"{name}_gate")
+        self.register_module("gate", self.gate)
+
+        # 3. Routed Experts
         self.routed_experts: List[SwiGLU] = []
         for i in range(num_routed_experts):
             exp = SwiGLU(dim, intermediate_dim, name=f"{name}_expert_{i}")
@@ -157,22 +161,25 @@ class DeepseekMoE(Module):
             self.register_module(f"expert_{i}", exp)
 
     def forward(self, graph: Graph, x: Tensor) -> Tensor:
-        # A. Shared expert branch
+        # A. Shared expert branch (always active)
         shared_out = self.shared_expert(graph, x)
 
-        # B. Routed experts branch
-        routed_accum = None
-        for i in range(self.top_k):
-            exp = self.routed_experts[i]
-            exp_out = exp(graph, x)
-            if routed_accum is None:
-                routed_accum = exp_out
-            else:
-                node_add_exp, routed_accum = ops.add(routed_accum, exp_out, name=f"{self.name}_acc_{i}")
-                graph.add_node(node_add_exp)
+        # B. Dynamic Top-K Routing: logits = x @ W_gate -> softmax + top-k
+        gate_logits = self.gate(graph, x)
+        node_router, topk_weights, topk_indices = ops.moe_router(
+            gate_logits, top_k=self.top_k, normalize=True, name=f"{self.name}_router"
+        )
+        graph.add_node(node_router)
 
-        # C. Combine shared + routed experts
-        node_moe_out, moe_out = ops.add(shared_out, routed_accum, name=f"{self.name}_combine")
+        # C. Routed experts + sparse weighted combine macro-op (Pillar 1)
+        expert_outs = [exp(graph, x) for exp in self.routed_experts]
+        node_combine, routed_out = ops.moe_combine(
+            topk_weights, topk_indices, expert_outs, name=f"{self.name}_moe_combine"
+        )
+        graph.add_node(node_combine)
+
+        # D. Combine shared + routed experts
+        node_moe_out, moe_out = ops.add(shared_out, routed_out, name=f"{self.name}_combine")
         graph.add_node(node_moe_out)
         return moe_out
 

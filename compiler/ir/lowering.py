@@ -71,8 +71,8 @@ def lower_graph_to_loop_ir(
             buf_b = tensor_buf_map[B.name] if B else None
             buf_y = tensor_buf_map[Y.name]
 
-            M, K = X.shape
-            _, N = W.shape
+            M, K = X.shape[-2], X.shape[-1]
+            N = W.shape[-1]
             sched = tiler.schedule(M, N, K)
             BM, BN, BK = sched.BM, sched.BN, sched.BK
 
