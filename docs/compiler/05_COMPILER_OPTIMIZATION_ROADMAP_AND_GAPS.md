@@ -19,14 +19,15 @@
 
 ## 二、未完成的核心编译器优化（按层级拆解）
 
-### 2.1 图级优化（Graph IR）
+### 2.1 图级优化（Graph IR）—— 已全部补齐 ✅
 
-| 优化项 | 工业界参考 | 当前缺口 | 研究价值 |
+| 优化项 | 工业界参考 | 实现模块与 Pass | 状态 |
 |---|---|---|---|
-| **通用支配树算子融合** | TVM `FuseOps` / TorchInductor / XLA | 仅靠 7 个手写 Pattern，无法自动融合任意 `Broadcast + Elementwise + Reduction` 链或菱形 DAG | **高（优先实现 #3）** |
-| **图级内存最优算子重排** | Sethi-Ullman / XLA Scheduler | `topological_sort` 按原始顺序排，未最小化峰值内存或交错独立分支隐藏通信 | 中 |
-| **全图张量布局双向传播** | XLA `LayoutAssignment` / oneDNN | `LayoutTransformPass` 仅覆盖 2D 权重 `pack` 和 4 个一元算子，缺少全局最小重排代价求解 | 中 |
-| **E-Graph / 代价引导重写** | egglog / Equality Saturation | 固定 Pass 顺序存在 Phase Ordering 问题（如水平融合与垂直融合相互遮蔽） | 中（偏理论研究） |
+| **通用支配树算子融合** | TVM `FuseOps` / TorchInductor / XLA | `compiler/midend/general_fusion.py`（`general-fusion`，后支配树 + `fused_region`） | **已完成** |
+| **图级内存最优 & 延迟隐藏算子重排** | Sethi-Ullman / XLA Scheduler | `compiler/midend/graph_scheduler.py`（`graph-scheduler`，峰值内存最小化 + 通信延迟隐藏） | **已完成** |
+| **全图张量布局双向传播 & N-D Permute 折叠** | XLA `LayoutAssignment` / oneDNN | `compiler/midend/global_layout.py`（`global-layout`，N-D 排列合成/消去、二元布局提取、常量权重预折叠） | **已完成** |
+| **E-Graph 饱和等价重写与代价提取** | egg / egglog / Tensat | `compiler/midend/egraph.py`（`egraph-opt`，矩阵链结合律、分配律提取、融合同图求最优，消除 Phase Ordering） | **已完成** |
+| **单大 GEMM 权重拼接水平融合** | TensorRT / vLLM QKV Packed GEMM | `compiler/midend/horizontal_fusion.py`（`h-fusion{concat_weights=True}`，编译期权重拼接 + 切片） | **已完成** |
 
 ### 2.2 存储介质与内存优化（支柱 2 核心深化）
 

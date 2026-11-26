@@ -15,6 +15,7 @@ Absorbs LLVM ConstantFolding and MLIR Canonicalize Constant Evaluation:
 from typing import List, Dict, Set, Optional, Tuple, Any
 import math
 from compiler.frontend import Graph, OpNode, Tensor
+from compiler.frontend.nd_utils import flatten_nd
 from compiler.pass_manager import register_pass
 
 
@@ -156,7 +157,7 @@ class ConstantFoldingPass:
                 # 1. Unary Operations
                 if node.op_type in ("relu", "silu", "gelu", "neg", "scale") and len(node.inputs) == 1:
                     inp = node.inputs[0]
-                    folded_values = _eval_unary_op(node.op_type, inp.initial_value, node.attrs)
+                    folded_values = _eval_unary_op(node.op_type, flatten_nd(inp.initial_value), node.attrs)
 
                 # 2. Binary Elementwise / Broadcast Operations
                 elif node.op_type in ("add", "mul", "sub", "div") and len(node.inputs) == 2:
@@ -164,27 +165,28 @@ class ConstantFoldingPass:
                     shape_a = tuple(in_a.shape)
                     shape_b = tuple(in_b.shape)
                     folded_values = _eval_binary_op(
-                        node.op_type, in_a.initial_value, shape_a, in_b.initial_value, shape_b
+                        node.op_type, flatten_nd(in_a.initial_value), shape_a,
+                        flatten_nd(in_b.initial_value), shape_b
                     )
 
                 # 3. 2D Transpose
                 elif node.op_type == "transpose" and len(node.inputs) == 1:
                     inp = node.inputs[0]
                     if len(inp.shape) == 2:
-                        folded_values = _eval_transpose_2d(inp.initial_value, tuple(inp.shape))
+                        folded_values = _eval_transpose_2d(flatten_nd(inp.initial_value), tuple(inp.shape))
 
                 # 4. View / Reshape
                 elif node.op_type in ("view", "reshape", "squeeze", "unsqueeze") and len(node.inputs) == 1:
                     inp = node.inputs[0]
-                    folded_values = list(inp.initial_value)
+                    folded_values = list(flatten_nd(inp.initial_value))
 
                 # 5. Static 2D MatMul
                 elif node.op_type == "matmul" and len(node.inputs) == 2:
                     in_a, in_b = node.inputs
                     if len(in_a.shape) == 2 and len(in_b.shape) == 2:
                         folded_values = _eval_matmul_2d(
-                            in_a.initial_value, tuple(in_a.shape),
-                            in_b.initial_value, tuple(in_b.shape)
+                            flatten_nd(in_a.initial_value), tuple(in_a.shape),
+                            flatten_nd(in_b.initial_value), tuple(in_b.shape)
                         )
 
                 if folded_values is not None:
