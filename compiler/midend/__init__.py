@@ -32,6 +32,12 @@ from .loop_schedule import (
     SoftwarePipeliningPass, PipelineStats
 )
 from .comm_overlap import ComputeCommOverlapPass, CommOverlapRecord
+from .graph_scheduler import (
+    GraphSchedulerPass, ScheduleReport,
+    simulate_peak_intermediate_bytes, simulate_exposed_comm_cycles
+)
+from .global_layout import GlobalLayoutPropagationPass, GlobalLayoutReport
+from .egraph import EGraph, ENode, EClass, EGraphOptimizationPass, EGraphReport
 
 __all__ = [
     "OperatorFusionPass",
@@ -93,5 +99,16 @@ __all__ = [
     "SoftwarePipeliningPass",
     "PipelineStats",
     "ComputeCommOverlapPass",
-    "CommOverlapRecord"
+    "CommOverlapRecord",
+    "GraphSchedulerPass",
+    "ScheduleReport",
+    "simulate_peak_intermediate_bytes",
+    "simulate_exposed_comm_cycles",
+    "GlobalLayoutPropagationPass",
+    "GlobalLayoutReport",
+    "EGraph",
+    "ENode",
+    "EClass",
+    "EGraphOptimizationPass",
+    "EGraphReport"
 ]

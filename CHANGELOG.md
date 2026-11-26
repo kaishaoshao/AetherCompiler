@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.14.0] - 2026-11-26
+
+### Added
+- **Complete Graph-IR Optimization Suite**:
+  - **Peak-Memory & Latency-Hiding Graph Scheduler (`compiler/midend/graph_scheduler.py`)**: Implemented `GraphSchedulerPass` (`graph-scheduler`) with Sethi-Ullman peak-memory minimizing scheduling (`13,312 B -> 6,144 B`, 53.8% peak reduction) and communication latency-hiding branch interleaving (`120 -> 56 cyc`, 64 cyc hidden).
+  - **Global Bidirectional Tensor Layout Propagation (`compiler/midend/global_layout.py`)**: Implemented `GlobalLayoutPropagationPass` (`global-layout`) supporting N-D permute composition & identity cancellation, binary layout factoring (`add(permute(A,p), permute(B,p)) -> permute(add(A,B),p)`), unary layout push-through, compile-time constant weight layout pre-folding, and bidirectional physical layout assignment.
+  - **E-Graph Equality Saturation & Cost-Model Extraction (`compiler/midend/egraph.py`)**: Implemented self-contained `EGraph` (`ENode`, `EClass`, Union-Find, Hashconsing, Congruence Closure) and `EGraphOptimizationPass` (`egraph-opt`) supporting Matrix Chain Associativity (`(A@B)@C <-> A@(B@C)`, 4.11× FLOP cost reduction), Matrix Distributivity Factoring (`(X@W1)+(X@W2) -> X@(W1+W2)`, 53.4% cost reduction, `max_diff = 6.94e-17`), and phase-order-free kernel fusion extraction.
+  - **Single-GEMM Packed Horizontal Fusion (`compiler/midend/horizontal_fusion.py`)**: Enhanced `HorizontalFusionPass` with `concat_weights=True` to pre-concatenate sibling constant weights (`[W_q, W_k, W_v]`) at compile time into a single large GEMM + slice outputs.
+  - Added `tests/test_graph_ir_optimizations.py` (4/4 passing) and updated `docs/compiler/05_COMPILER_OPTIMIZATION_ROADMAP_AND_GAPS.md` marking Section 2.1 Graph-IR optimizations complete.
+
+### Fixed
+- **Constant Folding on Nested N-D Weight Tensors (`compiler/midend/constant_folding.py`)**: Normalized `initial_value` via `flatten_nd()` prior to unary/binary/transpose/reshape/matmul constant folding so nested 2D/N-D weight lists are added elementwise instead of concatenated as Python lists.
+
+---
+
 ## [0.13.0] - 2026-11-26
 
 ### Added
