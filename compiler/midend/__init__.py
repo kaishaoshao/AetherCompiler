@@ -1,4 +1,12 @@
-from .fusion import OperatorFusionPass
+from .fusion import (
+    OperatorFusionPass,
+    FusionPattern,
+    FlashAttentionPattern,
+    SwiGLUPattern,
+    GeGLUPattern,
+    FusedAddRMSNormPattern,
+    PagedKVCacheAppendPattern,
+)
 from .memory_planner import MemoryPlanningPass
 from .graph_coloring import GraphColoringMemoryPlannerPass, InterferenceGraph, SRAMBankConflictOptimizer
 from .flow_dispatch import FlowDispatchPass, FlowExecutable, DispatchRegion, BufferBinding, FlowModule
@@ -13,10 +21,16 @@ from .layout_transform import LayoutTransformPass
 from .quantization import WeightQuantizationPass, QuantizedWeightTensor, WeightQuantizer
 from .distributed import TensorParallelPass, TensorParallelPlanner, DistributedDeviceContext
 from .autotuner import TilingAutotunerPass, AnalyticalHardwareCostModel, TilingAutotuner
-from .data_movement import DataMovementRoutingPass, DataMovementReport
+from .data_movement import DataMovementRoutingPass, DataMovementReport, DoubleBufferPlan
 
 __all__ = [
     "OperatorFusionPass",
+    "FusionPattern",
+    "FlashAttentionPattern",
+    "SwiGLUPattern",
+    "GeGLUPattern",
+    "FusedAddRMSNormPattern",
+    "PagedKVCacheAppendPattern",
     "MemoryPlanningPass",
     "GraphColoringMemoryPlannerPass",
     "InterferenceGraph",
@@ -45,5 +59,6 @@ __all__ = [
     "AnalyticalHardwareCostModel",
     "TilingAutotuner",
     "DataMovementRoutingPass",
-    "DataMovementReport"
+    "DataMovementReport",
+    "DoubleBufferPlan"
 ]

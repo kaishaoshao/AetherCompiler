@@ -267,9 +267,57 @@ class FlashAttentionPattern(FusionPattern):
         return fused_node, {node, qk_node, softmax_node, attn_v_node}
 
 
+class PagedKVCacheAppendPattern(FusionPattern):
+    """
+    Fuses RoPE(k_new, cos, sin) -> PagedKVAppend(k_cache, k_rot, slot_mapping)
+    into a single `fused_rope_paged_kv_append` macro-op, eliminating the DRAM
+    round-trip for the rotated Key vector before writing it into the paged pool.
+    """
+    def match_and_rewrite(
+        self,
+        node: OpNode,
+        graph: Graph,
+        consumer_count: Dict[str, int],
+        skip_nodes: Optional[Set[OpNode]] = None
+    ) -> Optional[Tuple[OpNode, Set[OpNode]]]:
+        if node.op_type != "rope":
+            return None
+
+        k_rot = node.outputs[0]
+        if consumer_count.get(k_rot.name, 0) != 1:
+            return None
+
+        append_node = next(
+            (
+                n for n in graph.nodes
+                if n.op_type == "paged_kv_append"
+                and len(n.inputs) == 3
+                and n.inputs[1].name == k_rot.name
+                and (skip_nodes is None or n not in skip_nodes)
+            ),
+            None
+        )
+        if not append_node:
+            return None
+
+        k_cache, _, slot_mapping = append_node.inputs
+        k_new, cos, sin = node.inputs
+        merged_attrs = dict(node.attrs)
+        merged_attrs.update(append_node.attrs)
+
+        fused_node = OpNode(
+            op_type="fused_rope_paged_kv_append",
+            inputs=[k_cache, k_new, cos, sin, slot_mapping],
+            outputs=[append_node.outputs[0]],
+            name=f"fused_rope_kv_append_{append_node.name}",
+            attrs=merged_attrs,
+        )
+        return fused_node, {node, append_node}
+
+
 @register_pass(
     name="fusion",
-    description="Vertical pattern-based operator fusion (FlashAttention, MatMul+Add+Act, SwiGLU, GeGLU)",
+    description="Vertical pattern-based operator fusion (FlashAttention, MatMul+Add+Act, SwiGLU, GeGLU, PagedKVAppend)",
     dialect_stage="graph",
     aliases=["operator-fusion", "vertical-fusion"]
 )
@@ -278,6 +326,7 @@ class OperatorFusionPass:
         # Open registry of fusion patterns: effortlessly extensible
         self.patterns = patterns or [
             FlashAttentionPattern(),
+            PagedKVCacheAppendPattern(),
             MatMulAddReLUPattern(),
             MatMulAddPattern(),
             SwiGLUPattern(),

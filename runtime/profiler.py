@@ -117,23 +117,28 @@ class NPUPerformanceProfiler:
         """Calculates floating-point operations (FLOPs) for an operator."""
         op_type = node.op_type
         if op_type == "matmul":
-            M, K = node.inputs[0].shape
-            _, N = node.inputs[1].shape
-            return 2 * M * N * K
+            s0, s1 = node.inputs[0].shape, node.inputs[1].shape
+            batch = math.prod(s0[:-2]) if len(s0) > 2 else 1
+            M, K, N = s0[-2], s0[-1], s1[-1]
+            return 2 * batch * M * N * K
         elif op_type == "fused_matmul_add_relu":
-            M, K = node.inputs[0].shape
-            _, N = node.inputs[1].shape
+            s0, s1 = node.inputs[0].shape, node.inputs[1].shape
+            batch = math.prod(s0[:-2]) if len(s0) > 2 else 1
+            M, K, N = s0[-2], s0[-1], s1[-1]
             # 2*M*N*K (GEMM) + M*N (Bias Add) + M*N (ReLU)
-            return 2 * M * N * K + 2 * M * N
+            return batch * (2 * M * N * K + 2 * M * N)
         elif op_type in ("fused_matmul_add", "custom_tilelang_gemm_relu"):
-            M, K = node.inputs[0].shape
-            _, N = node.inputs[1].shape
-            return 2 * M * N * K + M * N
+            s0, s1 = node.inputs[0].shape, node.inputs[1].shape
+            batch = math.prod(s0[:-2]) if len(s0) > 2 else 1
+            M, K, N = s0[-2], s0[-1], s1[-1]
+            return batch * (2 * M * N * K + M * N)
         elif op_type == "fused_horizontal_qkv_matmul":
-            M, K = node.inputs[0].shape
+            s0 = node.inputs[0].shape
+            batch = math.prod(s0[:-2]) if len(s0) > 2 else 1
+            M, K = s0[-2], s0[-1]
             total = 0
             for w in node.inputs[1:]:
-                total += 2 * M * w.shape[1] * K
+                total += 2 * batch * M * w.shape[-1] * K
             return total
         elif op_type == "fused_add_rmsnorm":
             # Add (1 FLOP/elem) + RMSNorm (5 FLOP/elem)
@@ -278,13 +283,14 @@ class NPUPerformanceProfiler:
                 node_exec_cycles = 0
                 node_overlap = 0
             elif is_matmul:
-                M, K = node.inputs[0].shape
+                s0 = node.inputs[0].shape
+                M, K = s0[-2], s0[-1]
                 if node.op_type == "fused_horizontal_qkv_matmul":
-                    N = sum(w.shape[1] for w in node.inputs[1:])
+                    N = sum(w.shape[-1] for w in node.inputs[1:])
                 elif node.op_type == "fused_flash_attention":
                     N = K
                 else:
-                    _, N = node.inputs[1].shape
+                    N = node.inputs[1].shape[-1]
 
                 # Multi-core compute cycles across `num_cores`
                 peak_core_flops_per_cycle = self.hw.macs_per_cycle_per_core * 2 * num_cores

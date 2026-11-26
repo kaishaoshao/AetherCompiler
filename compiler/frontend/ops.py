@@ -156,18 +156,21 @@ def transpose(x: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
     node = OpNode("transpose", [x], [out_tensor], name=name or out_name)
     return node, out_tensor
 
-def rope(x: Tensor, cos: Tensor, sin: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
+def rope(x: Tensor, cos: Tensor, sin: Tensor, name: str = "", head_dim: Optional[int] = None) -> Tuple[OpNode, Tensor]:
     """
     Rotary Position Embedding (RoPE) as used in Qwen, LLaMA, etc.
     x: [Tokens, Dim], cos: [Tokens, Dim], sin: [Tokens, Dim] -> [Tokens, Dim]
+    With head_dim=d: x: [Tokens, H*d] (packed heads), cos/sin: [Tokens, d] (HF-exact per-head rotation).
     """
-    if cos.shape[-1] != sin.shape[-1] or x.shape[-1] != cos.shape[-1]:
+    rot_dim = head_dim if head_dim is not None else x.shape[-1]
+    if cos.shape[-1] != sin.shape[-1] or rot_dim != cos.shape[-1]:
         raise ShapeMismatchError(
-            f"RoPE dimension mismatch: x:{x.shape}, cos:{cos.shape}, sin:{sin.shape}"
+            f"RoPE dimension mismatch: x:{x.shape}, cos:{cos.shape}, sin:{sin.shape}, head_dim={head_dim}"
         )
     out_name = f"{name}_out" if name else f"rope_out_{id(x)%100}"
     out_tensor = Tensor(out_name, x.shape, x.dtype)
-    node = OpNode("rope", [x, cos, sin], [out_tensor], name=name or out_name)
+    attrs = {"head_dim": head_dim} if head_dim is not None else {}
+    node = OpNode("rope", [x, cos, sin], [out_tensor], name=name or out_name, attrs=attrs)
     return node, out_tensor
 
 def cast(x: Tensor, target_dtype: Any, name: str = "") -> Tuple[OpNode, Tensor]:
@@ -202,3 +205,146 @@ def unpack(x: Tensor, original_shape: Tuple[int, int], block_size: Tuple[int, in
     out_tensor = Tensor(out_name, original_shape, x.dtype)
     node = OpNode("unpack", [x], [out_tensor], name=name or out_name, attrs={"original_shape": original_shape, "block_size": block_size})
     return node, out_tensor
+
+
+# ---------------------------------------------------------------------------
+# Shape manipulation & LLM first-class macro operators (see llm_ops.py)
+# ---------------------------------------------------------------------------
+def _single_out(op_type: str, inputs: List[Tensor], out_shape: Tuple[Any, ...], name: str,
+                prefix: str, attrs: Optional[Dict[str, Any]] = None, dtype: Optional[str] = None
+                ) -> Tuple[OpNode, Tensor]:
+    out_name = f"{name}_out" if name else f"{prefix}_out_{id(inputs[0]) % 1000}"
+    out_tensor = Tensor(out_name, tuple(out_shape), dtype or inputs[0].dtype)
+    node = OpNode(op_type, inputs, [out_tensor], name=name or out_name, attrs=attrs or {})
+    return node, out_tensor
+
+
+def reshape(x: Tensor, shape: Tuple[int, ...], name: str = "") -> Tuple[OpNode, Tensor]:
+    from .nd_utils import resolve_reshape
+    out_shape = resolve_reshape(tuple(x.shape), shape)
+    return _single_out("reshape", [x], out_shape, name, "reshape", {"shape": tuple(shape)})
+
+
+def permute(x: Tensor, perm: Tuple[int, ...], name: str = "") -> Tuple[OpNode, Tensor]:
+    if sorted(p % len(x.shape) for p in perm) != list(range(len(x.shape))):
+        raise ShapeMismatchError(f"Invalid permutation {perm} for rank-{len(x.shape)} tensor {x.name}")
+    out_shape = tuple(x.shape[p] for p in perm)
+    return _single_out("permute", [x], out_shape, name, "permute", {"perm": tuple(perm)})
+
+
+def concat(tensors: List[Tensor], axis: int = 0, name: str = "") -> Tuple[OpNode, Tensor]:
+    rank = len(tensors[0].shape)
+    ax = axis % rank
+    for t in tensors[1:]:
+        if len(t.shape) != rank or any(t.shape[i] != tensors[0].shape[i] for i in range(rank) if i != ax):
+            raise ShapeMismatchError(f"Concat shape mismatch on axis {axis}: {[t.shape for t in tensors]}")
+    out_shape = list(tensors[0].shape)
+    out_shape[ax] = sum(t.shape[ax] for t in tensors)
+    return _single_out("concat", list(tensors), tuple(out_shape), name, "concat", {"axis": axis})
+
+
+def slice_tensor(x: Tensor, axis: int, start: int, end: int, name: str = "") -> Tuple[OpNode, Tensor]:
+    ax = axis % len(x.shape)
+    if not (0 <= start < end <= x.shape[ax]):
+        raise ShapeMismatchError(f"Slice [{start}:{end}] out of range for axis {axis} of {x.shape}")
+    out_shape = list(x.shape)
+    out_shape[ax] = end - start
+    return _single_out("slice", [x], tuple(out_shape), name, "slice",
+                       {"axis": axis, "start": start, "end": end})
+
+
+def embedding(ids: Tensor, table: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
+    """Token embedding lookup (gather rows): ids [...], table [V, D] -> [..., D]."""
+    if len(table.shape) != 2:
+        raise ShapeMismatchError(f"Embedding table must be 2D [V, D], got {table.shape}")
+    out_shape = tuple(ids.shape) + (table.shape[1],)
+    return _single_out("embedding", [ids, table], out_shape, name, "embedding", dtype=table.dtype)
+
+
+def gather(data: Tensor, indices: Tensor, axis: int = 0, name: str = "") -> Tuple[OpNode, Tensor]:
+    """Gathers elements along `axis` according to 1D `indices`."""
+    ax = axis % len(data.shape)
+    out_shape = list(data.shape)
+    out_shape[ax] = indices.num_elements
+    return _single_out("gather", [data, indices], tuple(out_shape), name, "gather", {"axis": axis})
+
+
+def topk(x: Tensor, k: int, name: str = "") -> Tuple[OpNode, Tensor, Tensor]:
+    """Returns (values, indices) of the k largest entries along the last axis."""
+    if k > x.shape[-1]:
+        raise ShapeMismatchError(f"topk k={k} exceeds last dimension {x.shape[-1]}")
+    out_shape = tuple(x.shape[:-1]) + (k,)
+    base = name or f"topk_{id(x) % 1000}"
+    vals = Tensor(f"{base}_values", out_shape, x.dtype)
+    idxs = Tensor(f"{base}_indices", out_shape, x.dtype)
+    node = OpNode("topk", [x], [vals, idxs], name=base, attrs={"k": k})
+    return node, vals, idxs
+
+
+def attention(q: Tensor, k: Tensor, v: Tensor, num_heads: int, num_kv_heads: Optional[int] = None,
+              causal: bool = True, scale: Optional[float] = None, name: str = "") -> Tuple[OpNode, Tensor]:
+    """
+    First-class multi-head SDPA macro-op (MHA / GQA / MQA). Never decomposed in the frontend.
+    q: [Sq, H*d], k/v: [Skv, G*d] -> [Sq, H*d]
+    """
+    num_kv_heads = num_kv_heads or num_heads
+    if num_heads % num_kv_heads != 0:
+        raise ShapeMismatchError(f"num_heads={num_heads} must be divisible by num_kv_heads={num_kv_heads}")
+    head_dim = q.shape[-1] // num_heads
+    if k.shape[-1] != num_kv_heads * head_dim or v.shape[-1] != num_kv_heads * head_dim:
+        raise ShapeMismatchError(
+            f"Attention KV width mismatch: q:{q.shape} (H={num_heads}), k:{k.shape}, v:{v.shape} (G={num_kv_heads})"
+        )
+    attrs = {"num_heads": num_heads, "num_kv_heads": num_kv_heads, "causal": causal, "head_dim": head_dim}
+    if scale is not None:
+        attrs["scale"] = scale
+    return _single_out("attention", [q, k, v], tuple(q.shape), name, "attention", attrs)
+
+
+def paged_kv_append(cache: Tensor, new_rows: Tensor, slot_mapping: Tensor, name: str = "") -> Tuple[OpNode, Tensor]:
+    """Writes new K or V rows into the physical paged cache pool: cache [P, G*d] -> updated cache."""
+    if cache.shape[-1] != new_rows.shape[-1]:
+        raise ShapeMismatchError(f"KV append width mismatch: cache {cache.shape} vs new {new_rows.shape}")
+    return _single_out("paged_kv_append", [cache, new_rows, slot_mapping], tuple(cache.shape),
+                       name, "paged_kv_append")
+
+
+def paged_attention(q: Tensor, k_cache: Tensor, v_cache: Tensor, block_table: Tensor,
+                    context_len: int, block_size: int, num_heads: int,
+                    num_kv_heads: Optional[int] = None, causal: bool = True,
+                    name: str = "") -> Tuple[OpNode, Tensor]:
+    """
+    vLLM-style PagedAttention macro-op: gathers K/V through the block table and attends.
+    q: [Sq, H*d], k_cache/v_cache: [num_blocks*block_size, G*d], block_table: [max_blocks]
+    """
+    num_kv_heads = num_kv_heads or num_heads
+    attrs = {
+        "context_len": context_len, "block_size": block_size,
+        "num_heads": num_heads, "num_kv_heads": num_kv_heads, "causal": causal,
+    }
+    return _single_out("paged_attention", [q, k_cache, v_cache, block_table], tuple(q.shape),
+                       name, "paged_attention", attrs)
+
+
+def moe_router(logits: Tensor, top_k: int, normalize: bool = False, name: str = "") -> Tuple[OpNode, Tensor, Tensor]:
+    """Softmax gating + top-k expert selection: logits [T, N] -> (weights [T, K], indices [T, K])."""
+    if top_k > logits.shape[-1]:
+        raise ShapeMismatchError(f"top_k={top_k} exceeds number of experts {logits.shape[-1]}")
+    base = name or f"moe_router_{id(logits) % 1000}"
+    w = Tensor(f"{base}_weights", (logits.shape[0], top_k), logits.dtype)
+    idx = Tensor(f"{base}_indices", (logits.shape[0], top_k), logits.dtype)
+    node = OpNode("moe_router", [logits], [w, idx], name=base, attrs={"top_k": top_k, "normalize": normalize})
+    return node, w, idx
+
+
+def moe_combine(weights: Tensor, indices: Tensor, expert_outputs: List[Tensor], name: str = "") -> Tuple[OpNode, Tensor]:
+    """Sparse weighted combination of expert outputs selected by the router."""
+    return _single_out("moe_combine", [weights, indices] + list(expert_outputs),
+                       tuple(expert_outputs[0].shape), name, "moe_combine",
+                       {"num_experts": len(expert_outputs)})
+
+
+def all_reduce(partials: List[Tensor], name: str = "") -> Tuple[OpNode, Tensor]:
+    """Explicit sum all-reduce collective (MAX ADR-6: communication is a first-class node)."""
+    return _single_out("all_reduce", list(partials), tuple(partials[0].shape), name, "all_reduce",
+                       {"op": "sum", "world_size": len(partials)})

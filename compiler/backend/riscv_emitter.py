@@ -245,8 +245,8 @@ static inline void npu_flash_attention_tile(float* out, const float* q, const fl
                 B = node.inputs[2] if len(node.inputs) > 2 else None
                 Y = node.outputs[0]
 
-                M, K = X.shape
-                _, N = W.shape
+                M, K = X.shape[-2], X.shape[-1]
+                N = W.shape[-1]
                 sched = self.tiler.schedule(M, N, K)
                 BM, BN, BK = sched.BM, sched.BN, sched.BK
 

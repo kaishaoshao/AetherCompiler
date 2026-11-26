@@ -11,7 +11,7 @@ from compiler.frontend import Graph, Tensor, Module
 from .config_shims import ConfigShim, StandardModelConfig
 from .mlp import MLP, build_mlp_graph
 from .transformer import TransformerBlock, build_transformer_block_graph
-from .qwen import QwenDecoderLayer, build_qwen_layer_graph
+from .qwen import QwenDecoderLayer, build_qwen_layer_graph, Qwen2ForCausalLM, build_qwen2_hf_graph
 from .deepseek import DeepseekDecoderLayer, build_deepseek_layer_graph
 from .gemma import GemmaDecoderLayer, build_gemma_layer_graph
 from .weight_adapter import WeightAdapter
@@ -39,6 +39,7 @@ class ArchRegistry:
 ArchRegistry.register("mlp", MLP, build_mlp_graph)
 ArchRegistry.register("llama", TransformerBlock, build_transformer_block_graph)
 ArchRegistry.register("qwen", QwenDecoderLayer, build_qwen_layer_graph)
+ArchRegistry.register("qwen2_hf", Qwen2ForCausalLM, build_qwen2_hf_graph)
 ArchRegistry.register("deepseek", DeepseekDecoderLayer, build_deepseek_layer_graph)
 ArchRegistry.register("gemma", GemmaDecoderLayer, build_gemma_layer_graph)
 
@@ -65,6 +66,17 @@ class AutoModelForCausalLM:
             res = builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, intermediate_dim=cfg.intermediate_dim)
         elif cfg.model_type == "qwen":
             res = builder_fn(batch_size=batch_size, seq_len=seq_len, dim=cfg.dim, num_heads=cfg.num_heads, intermediate_dim=cfg.intermediate_dim)
+        elif cfg.model_type == "qwen2_hf":
+            res = builder_fn(
+                seq_len=seq_len,
+                vocab_size=cfg.vocab_size,
+                dim=cfg.dim,
+                num_heads=cfg.num_heads,
+                num_kv_heads=cfg.num_kv_heads,
+                intermediate_dim=cfg.intermediate_dim,
+                num_layers=cfg.num_layers,
+                eps=cfg.eps,
+            )
         elif cfg.model_type == "deepseek":
             res = builder_fn(
                 batch_size=batch_size,
@@ -85,11 +97,14 @@ class AutoModelForCausalLM:
         cls,
         model_dir: str,
         seq_len: int = 16,
-        batch_size: int = 1
+        batch_size: int = 1,
+        transpose_linear_weights: bool = False,
     ) -> Tuple[Graph, int]:
         """
         Loads a real HuggingFace checkpoint directory (config.json + .safetensors),
         instantiates the model Graph, and binds the weights into the tensors.
+        Set transpose_linear_weights=True for genuine PyTorch/HF checkpoints whose
+        nn.Linear weights are stored as [out_features, in_features].
         Returns:
             graph: The computational Graph with weight tensors populated.
             bound_weights_count: Total number of weight tensors successfully bound.
@@ -108,6 +123,13 @@ class AutoModelForCausalLM:
 
         graph = cls.from_config(hf_config, seq_len=seq_len, batch_size=batch_size)
 
+        def _transpose_flat_2d(flat_vals, rows, cols):
+            out = [0.0] * (rows * cols)
+            for r in range(rows):
+                for c in range(cols):
+                    out[c * rows + r] = flat_vals[r * cols + c]
+            return out
+
         # Look for safetensors files
         st_files = [f for f in os.listdir(model_dir) if f.endswith(".safetensors")]
         bound_count = 0
@@ -116,8 +138,20 @@ class AutoModelForCausalLM:
             st = SafeTensorsFile.load(st_path)
 
             raw_weights: Dict[str, Any] = {}
+            raw_shapes: Dict[str, Tuple[int, ...]] = {}
             for name in st.tensors:
-                raw_weights[name] = st.get_tensor_data(name)
+                data = st.get_tensor_data(name)
+                shape = tuple(st.tensors[name]["shape"])
+                if (
+                    transpose_linear_weights
+                    and len(shape) == 2
+                    and name.endswith(".weight")
+                    and "embed_tokens" not in name
+                ):
+                    data = _transpose_flat_2d(data, shape[0], shape[1])
+                    shape = (shape[1], shape[0])
+                raw_weights[name] = data
+                raw_shapes[name] = shape
 
             model_type = hf_config.get("model_type", "llama")
             adapted_weights = WeightAdapter.adapt(raw_weights, model_type)

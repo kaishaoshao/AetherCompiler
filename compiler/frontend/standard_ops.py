@@ -6,22 +6,26 @@ Registers all standard operators into OpRegistry with isolated, self-contained d
 import math
 from typing import List, Tuple, Any, Dict
 from .registry import OpRegistry, OpDefinition, OpTrait
+from .nd_utils import (
+    rank_of, broadcast_binary, broadcast_shape, map_elementwise, map_last_axis, matmul_nd
+)
 
-# --- Helper Reference Implementations ---
+# --- Helper Reference Implementations (rank-polymorphic, N-D capable) ---
 def _ref_matmul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
-    A, B = inputs[0], inputs[1]
-    M, K = len(A), len(A[0])
-    N = len(B[0])
-    out = [[0.0] * N for _ in range(M)]
-    for i in range(M):
-        for k in range(K):
-            a_val = A[i][k]
-            for j in range(N):
-                out[i][j] += a_val * B[k][j]
-    return [out]
+    return [matmul_nd(inputs[0], inputs[1])]
+
+def _infer_matmul_shape(in_shapes, attrs):
+    sa, sb = tuple(in_shapes[0]), tuple(in_shapes[1])
+    if len(sa) == 2 and len(sb) == 2:
+        return [(sa[0], sb[1])]
+    batch_a, batch_b = sa[:-2], sb[:-2]
+    batch = broadcast_shape(batch_a, batch_b) if (batch_a and batch_b) else (batch_a or batch_b)
+    return [tuple(batch) + (sa[-2], sb[-1])]
 
 def _ref_add(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A, B = inputs[0], inputs[1]
+    if rank_of(A) > 2 or rank_of(B) > 2:
+        return [broadcast_binary(A, B, lambda a, b: a + b)]
     # Handle 1D + 1D
     if not isinstance(A[0], list) and not isinstance(B[0], list):
         return [[a + b for a, b in zip(A, B)]]
@@ -39,31 +43,34 @@ def _ref_add(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
         return [[[A[i][j] + B[i][j] for j in range(N)] for i in range(M)]]
 
 def _ref_relu(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
-    A = inputs[0]
-    return [[[max(0.0, v) for v in row] for row in A]]
+    return [map_elementwise(inputs[0], lambda v: max(0.0, v))]
 
 def _ref_rmsnorm(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A, weight = inputs[0], inputs[1]
     eps = attrs.get("eps", 1e-5)
-    M, D = len(A), len(A[0])
-    out = [[0.0] * D for _ in range(M)]
-    for i in range(M):
-        sum_sq = sum(v * v for v in A[i])
-        rms = 1.0 / math.sqrt(sum_sq / D + eps)
-        for j in range(D):
-            out[i][j] = A[i][j] * rms * weight[j]
-    return [out]
+
+    def _row(row: List[float]) -> List[float]:
+        D = len(row)
+        rms = 1.0 / math.sqrt(sum(v * v for v in row) / D + eps)
+        return [row[j] * rms * weight[j] for j in range(D)]
+
+    return [map_last_axis(A, _row)]
+
+def _safe_silu(v: float) -> float:
+    if v < -60.0:
+        return 0.0
+    return v / (1.0 + math.exp(-v))
 
 def _ref_silu(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
-    A = inputs[0]
-    return [[[v / (1.0 + math.exp(-v)) for v in row] for row in A]]
+    return [map_elementwise(inputs[0], _safe_silu)]
 
 def _ref_gelu(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
-    A = inputs[0]
-    return [[[0.5 * v * (1.0 + math.erf(v / 1.41421356)) for v in row] for row in A]]
+    return [map_elementwise(inputs[0], lambda v: 0.5 * v * (1.0 + math.erf(v / 1.41421356)))]
 
 def _ref_mul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A, B = inputs[0], inputs[1]
+    if rank_of(A) > 2 or rank_of(B) > 2:
+        return [broadcast_binary(A, B, lambda a, b: a * b)]
     # Handle 1D * 1D
     if not isinstance(A[0], list) and not isinstance(B[0], list):
         return [[a * b for a, b in zip(A, B)]]
@@ -80,15 +87,14 @@ def _ref_mul(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
         M, N = len(A), len(A[0])
         return [[[A[i][j] * B[i][j] for j in range(N)] for i in range(M)]]
 
+def _softmax_row(row: List[float]) -> List[float]:
+    max_v = max(row)
+    exp_row = [math.exp(v - max_v) for v in row]
+    sum_exp = sum(exp_row)
+    return [v / sum_exp for v in exp_row]
+
 def _ref_softmax(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
-    A = inputs[0]
-    out = []
-    for row in A:
-        max_v = max(row)
-        exp_row = [math.exp(v - max_v) for v in row]
-        sum_exp = sum(exp_row)
-        out.append([v / sum_exp for v in exp_row])
-    return [out]
+    return [map_last_axis(inputs[0], _softmax_row)]
 
 def _ref_transpose(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     A = inputs[0]
@@ -96,18 +102,32 @@ def _ref_transpose(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
     return [[[A[r][c] for r in range(rows)] for c in range(cols)]]
 
 def _ref_rope(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
+    """
+    HF-compatible rotate_half RoPE.
+    - Default: x [T, D], cos/sin [T, D] (rotation over the whole last axis).
+    - attrs['head_dim']=d: x [T, H*d] packed heads, cos/sin [T, d]; each head rotated independently
+      (exactly matches HuggingFace LLaMA/Qwen `apply_rotary_pos_emb`).
+    - Rank-3 x [T, H, d] with cos/sin [T, d] is also supported.
+    """
     A, cos, sin = inputs[0], inputs[1], inputs[2]
+    if rank_of(A) == 3:
+        return [[_ref_rope([A[t], [cos[t]] * len(A[t]), [sin[t]] * len(A[t])], {})[0]
+                 for t in range(len(A))]]
+
     tokens, dim = len(A), len(A[0])
-    half_dim = dim // 2
+    head_dim = int(attrs.get("head_dim", dim))
+    half = head_dim // 2
     out = [[0.0] * dim for _ in range(tokens)]
     for t in range(tokens):
-        for i in range(half_dim):
-            x1 = A[t][i]
-            x2 = A[t][i + half_dim]
-            c = cos[t][i]
-            s = sin[t][i]
-            out[t][i] = x1 * c - x2 * s
-            out[t][i + half_dim] = x1 * s + x2 * c
+        row, c_row, s_row, o_row = A[t], cos[t], sin[t], out[t]
+        for base in range(0, dim, head_dim):
+            for i in range(half):
+                x1 = row[base + i]
+                x2 = row[base + i + half]
+                c = c_row[i]
+                s = s_row[i]
+                o_row[base + i] = x1 * c - x2 * s
+                o_row[base + i + half] = x1 * s + x2 * c
     return [out]
 
 def _ref_fused_matmul_add_relu(inputs: List[Any], attrs: Dict[str, Any]) -> List[Any]:
@@ -182,7 +202,7 @@ def register_standard_ops():
     OpRegistry.register(OpDefinition(
         name="matmul",
         traits={OpTrait.MATMUL_LIKE},
-        infer_shape_fn=lambda in_shapes, attrs: [(in_shapes[0][0], in_shapes[1][1])],
+        infer_shape_fn=_infer_matmul_shape,
         eval_ref_fn=_ref_matmul
     ))
 

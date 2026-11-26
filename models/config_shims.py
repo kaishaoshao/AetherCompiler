@@ -17,6 +17,9 @@ class StandardModelConfig:
     num_heads: int
     intermediate_dim: int
     num_layers: int = 1
+    num_kv_heads: Optional[int] = None
+    vocab_size: int = 1000
+    rope_theta: float = 1000000.0
     eps: float = 1e-6
     # Qwen-specific
     qkv_bias: bool = False
@@ -29,6 +32,10 @@ class StandardModelConfig:
     num_routed_experts: int = 4
     num_shared_experts: int = 1
     top_k: int = 2
+
+    def __post_init__(self):
+        if self.num_kv_heads is None:
+            self.num_kv_heads = self.num_heads
 
 class ConfigShim:
     @staticmethod
@@ -51,14 +58,35 @@ class ConfigShim:
             hf_dict.get("n_inner") or (dim * 2)
         )
         eps = hf_dict.get("rms_norm_eps") or 1e-6
+        num_kv_heads = hf_dict.get("num_key_value_heads") or num_heads
+        num_layers = hf_dict.get("num_hidden_layers") or 1
+        vocab_size = hf_dict.get("vocab_size") or 1000
+        rope_theta = float(hf_dict.get("rope_theta") or 1000000.0)
 
         # Architecture-specific shims
-        if "qwen" in model_type:
+        if model_type == "qwen2_hf":
+            return StandardModelConfig(
+                model_type="qwen2_hf",
+                dim=dim,
+                num_heads=num_heads,
+                num_kv_heads=num_kv_heads,
+                intermediate_dim=intermediate_dim,
+                num_layers=num_layers,
+                vocab_size=vocab_size,
+                rope_theta=rope_theta,
+                eps=eps,
+                qkv_bias=hf_dict.get("qkv_bias", True),
+            )
+        elif "qwen" in model_type:
             return StandardModelConfig(
                 model_type="qwen",
                 dim=dim,
                 num_heads=num_heads,
+                num_kv_heads=num_kv_heads,
                 intermediate_dim=intermediate_dim,
+                num_layers=num_layers,
+                vocab_size=vocab_size,
+                rope_theta=rope_theta,
                 eps=eps,
                 qkv_bias=hf_dict.get("qkv_bias", True)
             )

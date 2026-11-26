@@ -291,12 +291,12 @@ class FlowDispatchPass:
                 # Fixed-function ASICs run as dedicated monolithic hardware pipelines
                 grid = (1, 1, 1)
             elif OpTrait.MATMUL_LIKE in op_def.traits:
-                M, N = out_tensor.shape
-                gx = min(self.num_npu_cores, M)
+                M = out_tensor.shape[-2] if len(out_tensor.shape) >= 2 else out_tensor.shape[0]
+                gx = min(self.num_npu_cores, M) if isinstance(M, int) else self.num_npu_cores
                 grid = (gx, 1, 1)
             else:
                 total_work = out_tensor.shape[0]
-                gx = min(self.num_npu_cores, total_work)
+                gx = min(self.num_npu_cores, total_work) if isinstance(total_work, int) else self.num_npu_cores
                 grid = (gx, 1, 1)
 
             # 3. Build argument bindings (Inputs: Read, Outputs: Write)

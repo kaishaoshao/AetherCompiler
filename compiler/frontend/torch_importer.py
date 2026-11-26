@@ -22,14 +22,20 @@ class TorchModelImporter:
     def from_huggingface(
         model_dir: str,
         seq_len: int = 16,
-        batch_size: int = 1
+        batch_size: int = 1,
+        transpose_linear_weights: bool = False,
     ) -> Tuple[Graph, int]:
         """
         Loads a HuggingFace checkpoint directory (config.json + model.safetensors).
         Extracts architecture topology, instantiates an Aether Graph, and binds weights.
         """
         from models.arch_registry import AutoModelForCausalLM
-        return AutoModelForCausalLM.from_pretrained(model_dir, seq_len=seq_len, batch_size=batch_size)
+        return AutoModelForCausalLM.from_pretrained(
+            model_dir,
+            seq_len=seq_len,
+            batch_size=batch_size,
+            transpose_linear_weights=transpose_linear_weights,
+        )
 
     @staticmethod
     def from_torch_module(
