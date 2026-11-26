@@ -16,16 +16,114 @@ class Graph:
         self.inputs: List[Tensor] = []
         self.outputs: List[Tensor] = []
         self.nodes: List[OpNode] = []
+        self.version: int = 0
+        self._def_use_built: bool = False
+
+    def _bump_version(self):
+        self.version += 1
+
+    def _link_node(self, node: OpNode):
+        for inp in node.inputs:
+            if node not in inp.users:
+                inp.users.append(node)
+        for out in node.outputs:
+            out.producer = node
+        self._def_use_built = True
+
+    def _unlink_node(self, node: OpNode):
+        for inp in node.inputs:
+            if node in inp.users:
+                inp.users.remove(node)
+        for out in node.outputs:
+            if out.producer is node:
+                out.producer = None
+
+    def rebuild_def_use(self):
+        """Reconstructs exact SSA Def-Use chains (`producer` & `users`) from `self.nodes`."""
+        for t in self.get_all_tensors():
+            t.producer = None
+            t.users = []
+        for node in self.nodes:
+            self._link_node(node)
+        self._def_use_built = True
 
     def add_input(self, tensor: Tensor):
         if tensor not in self.inputs:
             self.inputs.append(tensor)
+            self._bump_version()
 
     def add_node(self, node: OpNode):
         self.nodes.append(node)
+        self._link_node(node)
+        self._bump_version()
+
+    def insert_before(self, anchor: OpNode, node: OpNode):
+        """Atomically inserts `node` immediately before `anchor` and updates Def-Use chains."""
+        idx = self.nodes.index(anchor)
+        self.nodes.insert(idx, node)
+        self._link_node(node)
+        self._bump_version()
+
+    def insert_after(self, anchor: OpNode, node: OpNode):
+        """Atomically inserts `node` immediately after `anchor` and updates Def-Use chains."""
+        idx = self.nodes.index(anchor)
+        self.nodes.insert(idx + 1, node)
+        self._link_node(node)
+        self._bump_version()
+
+    def replace_all_uses_with(self, old_tensor: Tensor, new_tensor: Tensor):
+        """SSA RAUW primitive: rewires every consumer node and graph output from `old_tensor` to `new_tensor`."""
+        for n in self.nodes:
+            replaced = False
+            for i, inp in enumerate(n.inputs):
+                if inp is old_tensor or inp.name == old_tensor.name:
+                    n.inputs[i] = new_tensor
+                    replaced = True
+            if replaced:
+                if n in old_tensor.users:
+                    old_tensor.users.remove(n)
+                if n not in new_tensor.users:
+                    new_tensor.users.append(n)
+        for i, out in enumerate(self.outputs):
+            if out is old_tensor or out.name == old_tensor.name:
+                self.outputs[i] = new_tensor
+        self._bump_version()
+
+    def erase_node(self, node: OpNode, force: bool = False):
+        """Safely removes `node` from the Graph and updates Def-Use chains."""
+        if not force:
+            for out in node.outputs:
+                active_users = [u for u in out.users if u in self.nodes and u is not node]
+                if active_users:
+                    raise ValueError(
+                        f"Cannot erase node '{node.name}': output '{out.name}' still used by {[u.name for u in active_users]}"
+                    )
+        self._unlink_node(node)
+        if node in self.nodes:
+            self.nodes.remove(node)
+        self._bump_version()
 
     def set_outputs(self, outputs: List[Tensor]):
         self.outputs = outputs
+        self._bump_version()
+
+    def verify(self, strict_storage: bool = False, composition: Optional[Any] = None, check_def_use: bool = False):
+        """Runs formal IR invariant checks via GraphVerifier."""
+        from .ir_core import GraphVerifier
+        return GraphVerifier.verify(
+            self, strict_storage=strict_storage, composition=composition, check_def_use=check_def_use
+        )
+
+    def to_aether_ir(self) -> str:
+        """Serializes this Graph into lossless Aether textual IR carrying all 4 Pillars."""
+        from .ir_core import dump_aether_ir
+        return dump_aether_ir(self)
+
+    @classmethod
+    def from_aether_ir(cls, text: str) -> "Graph":
+        """Parses lossless Aether textual IR back into a Graph."""
+        from .ir_core import parse_aether_ir
+        return parse_aether_ir(text)
 
     def get_all_tensors(self) -> List[Tensor]:
         tensor_dict: Dict[str, Tensor] = {t.name: t for t in self.inputs}

@@ -115,7 +115,16 @@ class TensorParallelPass:
         mid_ops: List[OpNode] = []
         for candidate in nodes[start_idx + 1:]:
             if any(inp.name in active_tensors for inp in candidate.inputs):
-                if candidate.op_type in ("relu", "silu", "gelu", "mul", "add"):
+                from compiler.frontend import OpRegistry, OpTrait
+                is_ewise = (
+                    candidate.op_type in ("relu", "silu", "gelu", "mul", "add", "fused_silu_mul", "fused_gelu_mul")
+                    or (
+                        OpRegistry.has(candidate.op_type)
+                        and OpTrait.ELEMENTWISE in OpRegistry.get(candidate.op_type).traits
+                        and OpTrait.REDUCTION not in OpRegistry.get(candidate.op_type).traits
+                    )
+                )
+                if is_ewise:
                     mid_ops.append(candidate)
                     for out in candidate.outputs:
                         active_tensors.add(out.name)

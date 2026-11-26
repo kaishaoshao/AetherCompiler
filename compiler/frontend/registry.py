@@ -8,6 +8,7 @@ Solves the "Adding a new model breaks previous compiler logic" problem:
 
 from enum import Enum, auto
 from typing import Callable, Dict, List, Set, Tuple, Any, Optional
+from .ir_core import OpEffect
 
 class OpTrait(Enum):
     ELEMENTWISE = auto()   # 1-to-1 element mapping (e.g. ReLU, SiLU)
@@ -16,6 +17,7 @@ class OpTrait(Enum):
     DATA_VIEW   = auto()   # Stride/view change without data copy (e.g. Transpose, Reshape)
     COMMUNICATION = auto() # Multi-device synchronization (e.g. AllReduce)
     FUSED_COMPOSITE = auto() # Composed kernel from fusion passes
+    CONTROL_FLOW = auto()  # Structured control flow / region call (Call, Cond)
 
 class OpDefinition:
     def __init__(
@@ -24,13 +26,28 @@ class OpDefinition:
         traits: Set[OpTrait],
         infer_shape_fn: Callable[[List[Tuple[int, ...]], Dict[str, Any]], List[Tuple[int, ...]]],
         eval_ref_fn: Callable[[List[Any], Dict[str, Any]], List[Any]],
-        emit_c_fn: Optional[Callable[[Any, Dict[str, Any]], List[str]]] = None
+        emit_c_fn: Optional[Callable[[Any, Dict[str, Any]], List[str]]] = None,
+        effects: Optional[Set[OpEffect]] = None
     ):
         self.name = name
         self.traits = traits
         self.infer_shape_fn = infer_shape_fn
         self.eval_ref_fn = eval_ref_fn
         self.emit_c_fn = emit_c_fn
+        if effects is not None:
+            self.effects = set(effects)
+        elif OpTrait.COMMUNICATION in traits:
+            self.effects = {OpEffect.COMM_SYNC}
+        else:
+            self.effects = {OpEffect.PURE}
+
+    @property
+    def is_pure(self) -> bool:
+        return self.effects == {OpEffect.PURE}
+
+    @property
+    def has_side_effects(self) -> bool:
+        return bool(self.effects & {OpEffect.WRITE, OpEffect.COMM_SYNC, OpEffect.ALLOC, OpEffect.FREE})
 
     def infer_shapes(self, input_shapes: List[Tuple[int, ...]], attrs: Dict[str, Any]) -> List[Tuple[int, ...]]:
         return self.infer_shape_fn(input_shapes, attrs)

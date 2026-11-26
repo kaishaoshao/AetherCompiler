@@ -20,6 +20,7 @@ import math
 from typing import Any, Dict, List, Tuple
 
 from .registry import OpRegistry, OpDefinition, OpTrait
+from .ir_core import OpEffect
 from .nd_utils import (
     flatten_nd, unflatten_nd, shape_of, permute_nd, concat_nd, slice_nd,
     resolve_reshape, normalize_axis
@@ -307,10 +308,30 @@ def register_llm_ops():
     reg(OpDefinition(
         "paged_attention", {OpTrait.FUSED_COMPOSITE, OpTrait.REDUCTION},
         lambda s, a: [tuple(s[0])], _ref_paged_attention))
-    reg(OpDefinition("paged_kv_append", set(), _same_shape, _ref_paged_kv_append))
+    reg(OpDefinition("paged_kv_append", set(), _same_shape, _ref_paged_kv_append,
+                     effects={OpEffect.WRITE}))
     reg(OpDefinition(
         "fused_rope_paged_kv_append", {OpTrait.FUSED_COMPOSITE},
-        _same_shape, _ref_fused_rope_paged_kv_append))
+        _same_shape, _ref_fused_rope_paged_kv_append,
+        effects={OpEffect.WRITE}))
+
+    # Structured Region & Control Flow Ops (CallOp for layer reuse, CondOp for dynamic Prefill/Decode branching)
+    reg(OpDefinition(
+        "call", {OpTrait.CONTROL_FLOW},
+        lambda s, a: [tuple(o.shape) for o in a["region"].outputs],
+        lambda inputs, attrs: attrs["region"].eval_region(inputs),
+        effects={OpEffect.PURE},
+    ))
+    reg(OpDefinition(
+        "cond", {OpTrait.CONTROL_FLOW},
+        lambda s, a: [tuple(o.shape) for o in a["then_region"].outputs],
+        lambda inputs, attrs: (
+            attrs["then_region"].eval_region(inputs[1:])
+            if (inputs[0][0] if isinstance(inputs[0], list) else inputs[0]) > 0.5
+            else attrs["else_region"].eval_region(inputs[1:])
+        ),
+        effects={OpEffect.PURE},
+    ))
 
     reg(OpDefinition(
         "moe_router", {OpTrait.REDUCTION},

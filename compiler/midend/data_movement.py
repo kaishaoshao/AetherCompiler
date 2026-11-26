@@ -352,12 +352,16 @@ class DataMovementRoutingPass(CompilerPass):
 
         # Track which tensors currently reside where
         current_tensors: Dict[str, Tensor] = {t.name: t for t in graph.inputs}
+        # On-chip staged buffer cache: (orig_tensor_name, dst_tier) -> staged Tensor
+        # Eliminates duplicate cross-die DMA transfers AND preserves SSA uniqueness!
+        staged_cache: Dict[Tuple[str, str], Tensor] = {}
 
         # For inputs that have a placement, tag their initial storage tier
         for inp in graph.inputs:
             if "storage_tier" not in inp.attrs:
                 inp_tier = self._get_tensor_tier(inp, inp.attrs.get("placement", "3d_dram_hbm4_die"))
                 inp.attrs["storage_tier"] = inp_tier
+            staged_cache[(inp.name, inp.attrs["storage_tier"])] = inp
 
         new_nodes: List[OpNode] = []
 
@@ -368,6 +372,11 @@ class DataMovementRoutingPass(CompilerPass):
             # Check every input tensor of this node
             new_node_inputs: List[Tensor] = []
             for inp_t in node.inputs:
+                # Reuse already-staged copy in `consumer_tier` if available (0 redundant DMA!)
+                if (inp_t.name, consumer_tier) in staged_cache:
+                    new_node_inputs.append(staged_cache[(inp_t.name, consumer_tier)])
+                    continue
+
                 curr_t = current_tensors.get(inp_t.name, inp_t)
                 src_tier = curr_t.attrs.get("storage_tier")
                 if not src_tier:
@@ -377,6 +386,7 @@ class DataMovementRoutingPass(CompilerPass):
 
                 # If the tensor is already in the consumer's target tier, no movement needed
                 if src_tier == consumer_tier:
+                    staged_cache[(inp_t.name, consumer_tier)] = curr_t
                     new_node_inputs.append(curr_t)
                     continue
 
@@ -384,19 +394,23 @@ class DataMovementRoutingPass(CompilerPass):
                 route = self.composition.find_shortest_data_path(src_tier, consumer_tier)
                 self.report.routes_executed.append(route)
 
-                # Insert multi-hop transfer operations
+                # Insert multi-hop transfer operations (reusing cached intermediate hops too!)
                 active_t = curr_t
                 num_hops = len(route.hops)
                 for hop_idx, hop in enumerate(route.hops):
+                    if (inp_t.name, hop.dst_tier) in staged_cache:
+                        active_t = staged_cache[(inp_t.name, hop.dst_tier)]
+                        continue
                     byte_size = active_t.num_elements * 4  # float32
                     hop_bw = hop.effective_bandwidth if hop.effective_bandwidth > 0 else 16.0
                     hop_transfer_cycles = hop.hop_latency_cycles + max(1, int(byte_size / hop_bw))
 
-                    # Create destination staged tensor
+                    # Create destination staged tensor (guaranteed SSA-unique name)
                     staged_name = f"{inp_t.name}_to_{hop.dst_tier}_{hop_idx}"
                     staged_tensor = Tensor(staged_name, active_t.shape, active_t.dtype)
                     staged_tensor.attrs["storage_tier"] = hop.dst_tier
                     staged_tensor.attrs["placement"] = hop.dst_chip
+                    staged_cache[(inp_t.name, hop.dst_tier)] = staged_tensor
 
                     # Timeline semaphore IDs
                     wait_sem = self._semaphore_counter - 1 if hop_idx > 0 else 0

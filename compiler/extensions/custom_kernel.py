@@ -8,8 +8,8 @@ Enables inserting user-defined micro-kernels (CUDA, OpenAI Triton, Microsoft Til
 4. Standard C-ABI Code Emission & Bit-exact Runtime Simulation
 """
 
-from typing import List, Dict, Any, Callable, Tuple, Optional
-from compiler.frontend import Tensor, OpNode, OpRegistry, OpDefinition, OpTrait
+from typing import List, Dict, Any, Callable, Tuple, Optional, Set
+from compiler.frontend import Tensor, OpNode, OpRegistry, OpDefinition, OpTrait, OpEffect
 
 class CustomKernel:
     """Descriptor for an external or custom DSL kernel (CUDA / Triton / TileLang / Mojo)."""
@@ -23,7 +23,9 @@ class CustomKernel:
         block_dims: Dict[str, int],
         eval_fn: Callable[[List[Any], Dict[str, Any]], List[Any]],
         emit_c_fn: Optional[Callable[[OpNode, Dict[str, Any]], List[str]]] = None,
-        attrs: Optional[Dict[str, Any]] = None
+        attrs: Optional[Dict[str, Any]] = None,
+        traits: Optional[Set[OpTrait]] = None,
+        effects: Optional[Set[OpEffect]] = None,
     ):
         self.name = name
         self.framework = framework
@@ -34,6 +36,8 @@ class CustomKernel:
         self.eval_fn = eval_fn
         self.emit_c_fn = emit_c_fn
         self.attrs = attrs or {}
+        self.traits = traits or {OpTrait.ELEMENTWISE}
+        self.effects = effects or {OpEffect.PURE}
 
     def to_op_node(self) -> Tuple[OpNode, List[Tensor]]:
         """Instantiates an OpNode for inclusion in the Graph DAG."""
@@ -83,9 +87,22 @@ class CustomKernel:
 
         op_def = OpDefinition(
             name=op_type,
-            traits={OpTrait.ELEMENTWISE},
+            traits=self.traits,
             infer_shape_fn=shape_infer,
             eval_ref_fn=self.eval_fn,
-            emit_c_fn=c_emitter
+            emit_c_fn=c_emitter,
+            effects=self.effects,
         )
         OpRegistry.register(op_def)
+
+    def as_rewrite_pattern(
+        self,
+        match_fn: Callable[[OpNode], Optional[Tuple[List[Tensor], List[OpNode]]]],
+        benefit: int = 10,
+    ):
+        """
+        Promotes this CustomKernel into a first-class `RewritePattern` for `RewriteDriver`,
+        allowing CUDA / Triton / TileLang micro-kernels to replace matched subgraphs via benefit/cost!
+        """
+        from compiler.rewriter import CustomKernelRewritePattern
+        return CustomKernelRewritePattern(self, match_fn=match_fn, benefit=benefit)

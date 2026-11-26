@@ -27,11 +27,18 @@ from .pass_manager import (
     parse_pipeline
 )
 
-# Driver
+# Driver & Unified Framework
 from .driver import (
     AetherCompiler,
     CompiledArtifact
 )
+from .context import CompileContext, AnalysisManager
+from .rewriter import (
+    PatternRewriter, RewritePattern, RewriteDriver,
+    SwiGLURewritePattern, GeGLURewritePattern, DoubleTransposeRewritePattern,
+    PagedKVAppendRewritePattern, CustomKernelRewritePattern
+)
+from .pipeline import AetherPipeline, UnifiedCompileResult
 
 # Convenience re-exports of primary symbols
 from .frontend import Graph, Tensor, ops, DType, FLOAT32, FLOAT16, BFLOAT16, INT8, INT4, ShapeInferencePass, ShapeInferenceError, placement, TorchModelImporter
@@ -49,9 +56,17 @@ from .midend import (
 )
 
 __all__ = [
-    # Top-level driver & artifacts
+    # Top-level driver & unified framework
     "AetherCompiler",
     "CompiledArtifact",
+    "CompileContext",
+    "AnalysisManager",
+    "PatternRewriter",
+    "RewritePattern",
+    "RewriteDriver",
+    "CustomKernelRewritePattern",
+    "AetherPipeline",
+    "UnifiedCompileResult",
 
     # Pass management
     "PassManager",
