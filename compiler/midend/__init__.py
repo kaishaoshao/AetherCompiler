@@ -20,7 +20,13 @@ from .cse import CommonSubexpressionEliminationPass
 from .layout_transform import LayoutTransformPass
 from .quantization import WeightQuantizationPass, QuantizedWeightTensor, WeightQuantizer
 from .distributed import TensorParallelPass, TensorParallelPlanner, DistributedDeviceContext
-from .autotuner import TilingAutotunerPass, AnalyticalHardwareCostModel, TilingAutotuner
+from .autotuner import (
+    TilingAutotunerPass,
+    AnalyticalHardwareCostModel,
+    TilingAutotuner,
+    HostCPUAutotuner,
+    AutoTuneTrial,
+)
 from .data_movement import DataMovementRoutingPass, DataMovementReport, DoubleBufferPlan
 from .specialization import SplitKMatMulPass, PrefillDecodeSpecializer, DualPathBundle, PhaseTelemetry
 from .rematerialization import RematerializationAndTieringPass, RematerializationReport, MemoryActionRecord
@@ -28,6 +34,7 @@ from .general_fusion import GeneralFusionPass, FusionKind, classify_op_fusion_ki
 from .inplace import InPlaceBufferPass, InPlaceDecision
 from .loop_schedule import (
     split_loop, reorder_loops, unroll_loop, vectorize_loop,
+    GemmLoopSchedule,
     MultiLevelTilingConfig, derive_multilevel_tiling, build_multilevel_gemm_loop_ir,
     SoftwarePipeliningPass, PipelineStats
 )
@@ -75,6 +82,8 @@ __all__ = [
     "TilingAutotunerPass",
     "AnalyticalHardwareCostModel",
     "TilingAutotuner",
+    "HostCPUAutotuner",
+    "AutoTuneTrial",
     "DataMovementRoutingPass",
     "DataMovementReport",
     "DoubleBufferPlan",
@@ -94,6 +103,7 @@ __all__ = [
     "reorder_loops",
     "unroll_loop",
     "vectorize_loop",
+    "GemmLoopSchedule",
     "MultiLevelTilingConfig",
     "derive_multilevel_tiling",
     "build_multilevel_gemm_loop_ir",

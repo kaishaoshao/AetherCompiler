@@ -74,16 +74,19 @@ def test_symbolic_algebra():
     print("  >>> Symbolic Algebra Passed Successfully! <<<\n")
 
 
+def _build_default_solver() -> SymbolicConstraintSolver:
+    solver = SymbolicConstraintSolver()
+    solver.set_range("S", min_val=1, max_val=2048, multiple_of=16)
+    solver.set_range("B", min_val=1, max_val=8, multiple_of=1)
+    return solver
+
+
 def test_constraint_solver_and_proofs():
     print("=" * 80)
     print(" 2. TESTING SYMBOLIC CONSTRAINT SOLVER & BOUNDS INFERENCE")
     print("=" * 80)
 
-    solver = SymbolicConstraintSolver()
-    # Define Sequence Length domain: S in [1, 2048], aligned to 16
-    solver.set_range("S", min_val=1, max_val=2048, multiple_of=16)
-    # Define Batch Size domain: B in [1, 8]
-    solver.set_range("B", min_val=1, max_val=8, multiple_of=1)
+    solver = _build_default_solver()
 
     s = sym_var("S")
     b = sym_var("B")
@@ -124,13 +127,14 @@ def test_constraint_solver_and_proofs():
     assert fits_sram is True
 
     print("  >>> Constraint Solver & Proofs Passed Successfully! <<<\n")
-    return solver
 
 
-def test_guard_elimination_in_tiling(solver: SymbolicConstraintSolver):
+def test_guard_elimination_in_tiling():
     print("=" * 80)
     print(" 3. TESTING MOJO/MAX TILING LOOP-GUARD ELIMINATION")
     print("=" * 80)
+
+    solver = _build_default_solver()
 
     s = sym_var("S")
     # S has multiple_of = 16
@@ -153,10 +157,12 @@ def test_guard_elimination_in_tiling(solver: SymbolicConstraintSolver):
     print("  >>> Loop Guard Elimination Verified Successfully! <<<\n")
 
 
-def test_dynamic_graph_compilation_and_execution(solver: SymbolicConstraintSolver):
+def test_dynamic_graph_compilation_and_execution():
     print("=" * 80)
     print(" 4. TESTING DYNAMIC SHAPE GRAPH COMPILATION & MULTI-LENGTH EXECUTION")
     print("=" * 80)
+
+    solver = _build_default_solver()
 
     # 1. Build a dynamic computation graph:
     # Graph: X[S, 64] -> MatMul(W1[64, 128]) -> BiasAdd(B1[128]) -> ReLU -> MatMul(W2[128, 64]) -> Out[S, 64]
@@ -244,9 +250,9 @@ def main():
     print("=" * 80)
 
     test_symbolic_algebra()
-    solver = test_constraint_solver_and_proofs()
-    test_guard_elimination_in_tiling(solver)
-    test_dynamic_graph_compilation_and_execution(solver)
+    test_constraint_solver_and_proofs()
+    test_guard_elimination_in_tiling()
+    test_dynamic_graph_compilation_and_execution()
 
     print("=" * 80)
     print(" ALL SYMINT & SYMBOLIC CONSTRAINT SOLVER TESTS PASSED PERFECTLY!")

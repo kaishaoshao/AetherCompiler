@@ -88,7 +88,8 @@ class AutoModelForCausalLM:
                 intermediate_dim=cfg.intermediate_dim
             )
         else:
-            raise NotImplementedError(f"Builder dispatch for {cfg.model_type}")
+            # Generic dispatch for custom architectures registered via ArchRegistry.register()
+            res = builder_fn(cfg=cfg, seq_len=seq_len, batch_size=batch_size)
 
         return res[0] if isinstance(res, tuple) else res
 

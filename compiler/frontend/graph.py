@@ -183,33 +183,75 @@ class Graph:
         concrete_graph.set_outputs([get_concrete(t) for t in self.outputs])
         return concrete_graph
 
+    def clone(self, name: Optional[str] = None) -> "Graph":
+        """Creates an independent deep-enough structural clone of this Graph for non-destructive passes."""
+        from .ops import OpNode
+        cloned = Graph(name=name or self.name)
+        tensor_map: Dict[int, Tensor] = {}
+
+        def _clone_tensor(t: Tensor) -> Tensor:
+            key = id(t)
+            if key not in tensor_map:
+                ct = Tensor(
+                    name=t.name,
+                    shape=tuple(t.shape),
+                    dtype=t.dtype,
+                    layout=t.layout,
+                    attrs=dict(t.attrs),
+                )
+                ct.initial_value = t.initial_value
+                ct.allocated_offset = t.allocated_offset
+                ct._solver = getattr(t, "_solver", None)
+                tensor_map[key] = ct
+            return tensor_map[key]
+
+        for inp in self.inputs:
+            cloned.add_input(_clone_tensor(inp))
+
+        for node in self.nodes:
+            new_inputs = [_clone_tensor(t) for t in node.inputs]
+            new_outputs = [_clone_tensor(t) for t in node.outputs]
+            new_regions = list(node.regions) if getattr(node, "regions", None) else []
+            new_node = OpNode(
+                op_type=node.op_type,
+                inputs=new_inputs,
+                outputs=new_outputs,
+                name=node.name,
+                attrs=dict(node.attrs),
+                placement_spec=node.placement_spec,
+                regions=new_regions,
+            )
+            cloned.add_node(new_node)
+
+        cloned.set_outputs([_clone_tensor(o) for o in self.outputs])
+        cloned.rebuild_def_use()
+        return cloned
+
     def apply_rewrite(self, pattern_or_pass: Any) -> "Graph":
         """
         Mojo / MAX-style high-level declarative pattern rewriting API.
-        Applies a pattern (e.g. FlashAttentionPattern, SwiGLUPattern)
-        or a pass to the graph and mutates the current graph in-place,
+        Applies any unified `RewritePattern` (including built-in fusion patterns and
+        Pillar 4 CustomKernel patterns) or a `CompilerPass` to the graph in-place,
         returning self for fluent chaining:
             g.apply_rewrite(FlashAttentionPattern()).apply_rewrite(SwiGLUPattern())
         """
-        from compiler.midend.fusion import FusionPattern, OperatorFusionPass
-        if isinstance(pattern_or_pass, FusionPattern):
-            fusion_pass = OperatorFusionPass(patterns=[pattern_or_pass])
-            fused = fusion_pass.run(self)
-            self.nodes = fused.nodes
-            self.inputs = fused.inputs
-            self.outputs = fused.outputs
+        from compiler.rewriter import RewritePattern, RewriteDriver
+        if isinstance(pattern_or_pass, RewritePattern):
+            RewriteDriver(patterns=[pattern_or_pass]).run(self)
         elif hasattr(pattern_or_pass, "run"):
             result = pattern_or_pass.run(self)
             if isinstance(result, Graph):
                 self.nodes = result.nodes
                 self.inputs = result.inputs
                 self.outputs = result.outputs
+                self.rebuild_def_use()
         elif callable(pattern_or_pass):
             result = pattern_or_pass(self)
             if isinstance(result, Graph):
                 self.nodes = result.nodes
                 self.inputs = result.inputs
                 self.outputs = result.outputs
+                self.rebuild_def_use()
         return self
 
     def print_graph(self, title: str = "Computation Graph"):

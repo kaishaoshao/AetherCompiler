@@ -9,6 +9,7 @@ Unifies ALL local graph rewrites under a single SSA Def-Use-backed interface:
     and automatically replace matched subgraphs while preserving PlacementSpec & Def-Use!
 """
 
+from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from compiler.frontend import Graph, OpNode, Tensor, OpRegistry
@@ -59,13 +60,14 @@ class PatternRewriter:
         self.rewrites_applied += 1
 
 
-class RewritePattern:
+class RewritePattern(ABC):
     """Unified rewrite rule base class (higher `benefit` runs first, e.g. CustomKernel > built-in)."""
     benefit: int = 1
     name: str = "RewritePattern"
 
+    @abstractmethod
     def match_and_rewrite(self, node: OpNode, rewriter: PatternRewriter) -> bool:
-        raise NotImplementedError
+        """Attempts to match `node` and mutate the graph via `rewriter`. Returns True if rewritten."""
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +190,7 @@ class FlashAttentionRewritePattern(RewritePattern):
         if tr_node is None or tr_node.op_type != "transpose" or len(kt_t.users) != 1:
             return False
         k_t = tr_node.inputs[0]
-        if len(q_t.shape) != 2 or len(k_t.shape) != 2 or q_t.shape != k_t.shape:
+        if len(q_t.shape) != 2 or len(k_t.shape) != 2 or str(q_t.shape[1]) != str(k_t.shape[1]):
             return False
         # Require same placement across fused nodes
         places = {n.get_placement_chip() for n in (node, sm_node, qk_node, tr_node)}

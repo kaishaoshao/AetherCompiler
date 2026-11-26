@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.17.0] - 2026-11-26
+
+### Added
+- **P0-1 — True Single-Engine Framework Convergence (`compiler/driver.py`, `compiler/pipeline.py`, `compiler/midend/fusion.py`, `compiler/frontend/graph.py`)**:
+  - Eliminated ~300 lines of duplicated vertical fusion rules in `compiler/midend/fusion.py`: all legacy `*Pattern` classes now alias directly to `compiler.rewriter.RewritePattern` subclasses, and `OperatorFusionPass` (`"fusion"`) subclasses `RewriteDriver` on a non-destructive `Graph.clone()`.
+  - Upgraded `AetherPipeline` to instantiate every pass strictly via `PassRegistry` with named presets (`PIPELINE_PRESETS`: `"unified"`, `"standard"`, `"minimal"`, `"llm-full"`), MLIR-style textual pipeline specs, and list specs.
+  - Unified `AetherCompiler.compile()` to delegate directly to `AetherPipeline` (sharing `CompileContext`, `PassRegistry`, and `RewriteDriver`), preserving `original_graph` untouched and exposing `artifact.unified_result`.
+  - Updated `Graph.apply_rewrite()` to dispatch directly to `RewriteDriver` and removed the empty leftover `compiler/mlir/` directory tree.
+- **P0-2 — Loop-IR-to-C99 Codegen, Host CPU Autotuner & Real CPU GFLOPS Benchmarks (`compiler/backend/loop_c_emitter.py`, `compiler/ir/lowering.py`, `compiler/midend/loop_schedule.py`, `compiler/midend/autotuner.py`, `runtime/native_jit.py`, `benchmarks/benchmark_loop_codegen_cpu.py`, `tests/test_loop_ir_codegen_and_autotuner.py`)**:
+  - Added `GemmLoopSchedule` and upgraded `lower_graph_to_loop_ir` to preserve concrete tiling `(BM, BN, BK)`, register blocking `(MR, NR)`, B-panel packing (`pack_b`), K-unrolling, SIMD vector width, and software-pipelining stages directly in Level-2 `LoopModule`.
+  - Implemented `LoopIRCCodegen` (`compiler/backend/loop_c_emitter.py`) compiling `LoopModule` directly into specialized C99 (`naive_ijk`, `reordered_ikj`, `tiled_ikj`, and GotoBLAS/BLIS-style `MR×NR` register-blocked `tiled_microkernel` with 64B-aligned contiguous B-panel packing, `#pragma GCC ivdep`/`unroll`, and software-pipelined `__builtin_prefetch`), wired into `AetherPipeline(use_loop_ir_codegen=True)`.
+  - Added pure-C wall-clock `NativeCJitExecutor.benchmark()` and `extra_cflags` (`-march=native -ffast-math`), plus hardware-in-the-loop `HostCPUAutotuner` calibrating `UnifiedHardwareCostModel.calibrated_gflops` from real CPU measurements.
+  - Measured genuine single-core CPU speedups (Intel Core Ultra 7 251HX, `gcc -O3 -march=native -ffast-math`): **18.7×** at `128³` (`4.11 -> 76.92 GFLOPS`), **23.5×** at `256³` (`3.24 -> 76.12 GFLOPS`), and **31.0×** at `512³` (`2.60 -> 80.58 GFLOPS`, `max_diff <= 3.40e-06`).
+- **P2 — Engineering Infrastructure, Pytest, CI, External Golden & ABC Cleanup (`pyproject.toml`, `.github/workflows/ci.yml`, `tests/test_external_golden_reference.py`)**:
+  - Added PEP 621 `pyproject.toml` (zero core runtime dependencies, optional `[dev]`/`[torch]`/`[numpy]`, pytest & ruff config) and GitHub Actions CI workflow (`.github/workflows/ci.yml`) running `pytest -v`, `scripts/run_all_tests.sh`, and the CPU GFLOPS benchmark.
+  - Made all 30 test modules (`116` tests) 100% clean under `pytest -v` (zero errors, zero warnings) and added `tests/test_external_golden_reference.py` (independent FP64 oracle, `FXImporter` end-to-end Loop-IR JIT, and optional live PyTorch/NumPy golden check).
+  - Replaced `NotImplementedError` abstract stubs with proper `abc.ABC` + `@abstractmethod` across `CompilerPass`, `RewritePattern`, `Stmt`, `Command`, and `Module`, plus generic custom-architecture dispatch in `models/arch_registry.py`.
+
+### Fixed
+- Fixed `FXImporter.from_fx_nodes()` to bind `tensor_map[node_name] = out_tensor` so downstream FX nodes referencing standard PyTorch node names resolve cleanly.
+- Fixed `fused_horizontal_qkv_matmul` C99 emitter argument count in `standard_ops.py` and added missing `fused_matmul_add` bias epilogue in `riscv_emitter.py`.
+
+---
+
 ## [0.16.0] - 2026-11-26
 
 ### Added

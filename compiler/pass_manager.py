@@ -19,12 +19,13 @@ Core Architectural Innovations:
 import time
 import re
 import inspect
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Callable, Tuple, Union
 
 
-class CompilerPass:
-    """Base class for all compiler passes."""
+class CompilerPass(ABC):
+    """Abstract base class for all compiler passes."""
     @property
     def name(self) -> str:
         return self.__class__.__name__
@@ -33,8 +34,9 @@ class CompilerPass:
     def description(self) -> str:
         return self.__doc__ or "No description provided."
 
+    @abstractmethod
     def run(self, target: Any) -> Any:
-        raise NotImplementedError
+        """Executes this compiler pass on `target` and returns the transformed IR."""
 
 
 @dataclass

@@ -408,7 +408,8 @@ def register_standard_ops():
             for line in (
                 f"        float* w_{idx}   = (float*)(dram_base + {w.allocated_offset});",
                 f"        float* out_{idx} = (float*)(dram_base + {out.allocated_offset});",
-                f"        npu_matmul_tile(out_{idx}, x, w_{idx}, {node.inputs[0].shape[0]}, {w.shape[1]}, {node.inputs[0].shape[1]});"
+                f"        memset(out_{idx}, 0, (size_t)({node.inputs[0].shape[0]} * {w.shape[1]}) * sizeof(float));",
+                f"        npu_matmul_tile(out_{idx}, x, w_{idx}, {node.inputs[0].shape[0]}, {w.shape[1]}, {node.inputs[0].shape[1]}, {node.inputs[0].shape[1]}, {w.shape[1]}, {w.shape[1]});"
             )
         ]
     ))

@@ -3,6 +3,7 @@ Frontend: Neural Network Module Abstractions (PyTorch-like nn.Module).
 Enables clean, modular, and declarative model construction.
 """
 
+from abc import ABC, abstractmethod
 from typing import List, Dict, Tuple, Optional
 from .tensor import Tensor
 from .graph import Graph
@@ -13,7 +14,7 @@ class Parameter(Tensor):
     def __init__(self, name: str, shape: Tuple[int, ...], dtype: str = "float32"):
         super().__init__(name, shape, dtype)
 
-class Module:
+class Module(ABC):
     def __init__(self, name: str = ""):
         self.name = name or self.__class__.__name__
         self._parameters: Dict[str, Parameter] = {}
@@ -36,8 +37,9 @@ class Module:
     def __call__(self, graph: Graph, *args, **kwargs) -> Tensor:
         return self.forward(graph, *args, **kwargs)
 
+    @abstractmethod
     def forward(self, graph: Graph, *args, **kwargs) -> Tensor:
-        raise NotImplementedError
+        """Constructs graph nodes for this module and returns the output Tensor."""
 
 class Linear(Module):
     def __init__(self, in_features: int, out_features: int, bias: bool = True, name: str = "linear"):

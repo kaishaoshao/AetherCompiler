@@ -124,6 +124,7 @@ class FXImporter:
                         input_tensors.append(_get_or_create_tensor(arg))
 
                 out_tensor = _get_or_create_tensor(f"{node_name}_out", shape, dtype)
+                tensor_map[node_name] = out_tensor
                 node = Node(
                     name=node_name,
                     op_type=mapped_op,

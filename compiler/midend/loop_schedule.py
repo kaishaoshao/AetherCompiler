@@ -109,6 +109,41 @@ def vectorize_loop(loop: ForLoop, width: int) -> ForLoop:
 # 2. Multi-Level Memory Hierarchy Tiling (HBM -> L2 SRAM -> Local SRAM -> Reg)
 # ---------------------------------------------------------------------------
 @dataclass
+class GemmLoopSchedule:
+    """
+    Executable Loop-IR schedule specification that directly drives C99 codegen.
+    Every field below visibly transforms the emitted Loop IR and C99 kernel:
+      - mode: 'naive_ijk' | 'reordered_ikj' | 'tiled_ikj' | 'tiled_microkernel'
+      - bm, bn, bk: L1/L2 cache blocking tile sizes
+      - mr, nr: register micro-kernel tile (e.g. 4x16 or 6x16 for AVX2 YMM registers)
+      - pack_b: contiguous NR-wide panel packing of B into L1 scratchpad
+      - unroll_k: inner K-loop unroll factor
+      - vector_width: SIMD vectorization width hint (e.g. 8 for AVX2 fp32)
+      - software_pipeline_stages: 1 (off) or >=2 (prologue/steady/epilogue + prefetch)
+    """
+    mode: str = "tiled_microkernel"
+    bm: int = 64
+    bn: int = 64
+    bk: int = 64
+    mr: int = 4
+    nr: int = 16
+    pack_b: bool = True
+    unroll_k: int = 4
+    vector_width: int = 8
+    software_pipeline_stages: int = 2
+    name: str = ""
+
+    def label(self) -> str:
+        if self.name:
+            return self.name
+        return (
+            f"{self.mode}(BM={self.bm},BN={self.bn},BK={self.bk},"
+            f"MR={self.mr},NR={self.nr},packB={int(self.pack_b)},"
+            f"unrollK={self.unroll_k},vec={self.vector_width},swp={self.software_pipeline_stages})"
+        )
+
+
+@dataclass
 class MultiLevelTilingConfig:
     M: int
     N: int

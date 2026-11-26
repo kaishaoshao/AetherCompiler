@@ -7,6 +7,7 @@ Lowered from: High-Level Graph IR (frontend.Graph).
 Lowers to: Command & Hardware Runtime IR (ir.command_ir).
 """
 
+from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Tuple
 
 class Buffer:
@@ -30,10 +31,11 @@ class Buffer:
         return f"Buffer({self.name}, shape={self.shape}, scope={self.scope}, offset=0x{self.offset:X})"
 
 
-class Stmt:
-    """Base class for all Loop IR statements."""
+class Stmt(ABC):
+    """Abstract base class for all Loop IR statements."""
+    @abstractmethod
     def to_string(self, indent: int = 0) -> str:
-        raise NotImplementedError
+        """Formats this Loop IR statement into readable textual IR."""
 
 
 class AllocBuffer(Stmt):

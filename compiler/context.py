@@ -43,6 +43,13 @@ class UnifiedHardwareCostModel:
         self.default_flops_per_cycle = default_flops_per_cycle
         self.default_bw_bytes_per_cycle = default_bw_bytes_per_cycle
         self.default_dma_latency_cycles = default_dma_latency_cycles
+        self.calibrated_gflops: Optional[float] = None
+
+    def calibrate_from_measurement(self, measured_gflops: float, freq_ghz: float = 3.0) -> None:
+        """Calibrates analytical compute throughput using real measured host CPU GFLOPS."""
+        if measured_gflops > 0.0 and freq_ghz > 0.0:
+            self.calibrated_gflops = measured_gflops
+            self.default_flops_per_cycle = measured_gflops / freq_ghz
 
     def chip_flops_per_cycle(self, chip_id: Optional[str] = None) -> float:
         if self.composition is not None and chip_id and chip_id in self.composition.chips:

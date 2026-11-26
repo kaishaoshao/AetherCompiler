@@ -316,6 +316,9 @@ static inline void npu_flash_attention_tile(float* out, const float* q, const fl
                 if node.op_type == "fused_matmul_add_relu":
                     lines.append(f"                // 4. Fused Epilogue: Bias Add + ReLU in-place on SRAM")
                     lines.append(f"                npu_bias_relu_tile(sram_c, sram_bias, actual_bm, actual_bn, {BN});")
+                elif node.op_type == "fused_matmul_add" and B:
+                    lines.append(f"                // 4. Fused Epilogue: Bias Add in-place on SRAM")
+                    lines.append(f"                for (int bi = 0; bi < actual_bm; ++bi) for (int bj = 0; bj < actual_bn; ++bj) sram_c[bi * {BN} + bj] += sram_bias[bj];")
 
                 lines.append(f"                // 5. Store result back to Global DRAM via DMA (Boundary Safe 2D DMA)")
                 lines.append(f"                npu_dma_async_2d(&dev_Y[m * {N} + n], sram_c, actual_bm, actual_bn, {N}, {BN}, sizeof(float));")

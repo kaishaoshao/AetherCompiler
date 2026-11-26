@@ -9,15 +9,18 @@ Lowered from: Level 2 Loop IR (ir.loop_ir).
 Lowers to: Machine Code / RV64 Assembly / Freestanding C.
 """
 
+from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 
-class Command:
-    """Base class for hardware runtime commands."""
+class Command(ABC):
+    """Abstract base class for hardware runtime commands."""
+    @abstractmethod
     def to_c(self, indent: int = 2) -> str:
-        raise NotImplementedError
+        """Emits C99 source code for this hardware command."""
 
+    @abstractmethod
     def to_ir(self) -> str:
-        raise NotImplementedError
+        """Emits HAL/Stream dialect IR text for this hardware command."""
 
 
 class CmdComment(Command):

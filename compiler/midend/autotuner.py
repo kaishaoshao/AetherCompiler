@@ -15,9 +15,10 @@ Absorbs TVM MetaSchedule and Halide AutoScheduler:
    - Tags matrix multiplication and fused GEMM nodes with optimal tiling parameters.
 """
 
+from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional, Any
 import math
-from compiler.frontend import Graph, OpNode
+from compiler.frontend import Graph, OpNode, Tensor, ops
 from compiler.pass_manager import register_pass
 
 
@@ -170,3 +171,136 @@ class TilingAutotunerPass:
                     node.attrs["predicted_cycles"] = best["total_cycles"]
                     node.attrs["overlap_ratio"] = best["overlap_ratio"]
         return graph
+
+
+@dataclass
+class AutoTuneTrial:
+    """Result of compiling and benchmarking a single Loop-IR schedule on real host hardware."""
+    schedule: Any
+    median_ms: float
+    min_ms: float
+    gflops: float
+    c_code_len: int
+
+
+class HostCPUAutotuner:
+    """
+    Hardware-in-the-loop Loop-IR Autotuner (TVM MetaSchedule style).
+    Compiles candidate `GemmLoopSchedule`s through:
+      Graph -> lower_graph_to_loop_ir -> SoftwarePipeliningPass -> LoopIRCCodegen -> NativeCJitExecutor
+    measures genuine wall-clock GFLOPS on the host CPU, selects the fastest schedule,
+    and optionally calibrates `UnifiedHardwareCostModel` with real measured throughput!
+    """
+
+    def __init__(
+        self,
+        extra_cflags: Optional[List[str]] = None,
+        warmup: int = 2,
+        repeat: int = 6,
+    ):
+        self.extra_cflags = extra_cflags if extra_cflags is not None else ["-march=native", "-ffast-math"]
+        self.warmup = warmup
+        self.repeat = repeat
+        self.history: List[AutoTuneTrial] = []
+
+    @staticmethod
+    def default_candidates(M: int, N: int, K: int) -> List[Any]:
+        from compiler.midend.loop_schedule import GemmLoopSchedule
+        return [
+            GemmLoopSchedule(mode="tiled_ikj", bm=32, bn=32, bk=32, mr=4, nr=8, pack_b=False, unroll_k=4, vector_width=8, software_pipeline_stages=1, name="tiled_ikj_32"),
+            GemmLoopSchedule(mode="tiled_microkernel", bm=64, bn=64, bk=64, mr=4, nr=8, pack_b=True, unroll_k=4, vector_width=8, software_pipeline_stages=2, name="mk_4x8_b64_packB_swp2"),
+            GemmLoopSchedule(mode="tiled_microkernel", bm=64, bn=64, bk=64, mr=4, nr=16, pack_b=True, unroll_k=4, vector_width=8, software_pipeline_stages=2, name="mk_4x16_b64_packB_swp2"),
+            GemmLoopSchedule(mode="tiled_microkernel", bm=64, bn=128, bk=64, mr=6, nr=16, pack_b=True, unroll_k=4, vector_width=8, software_pipeline_stages=2, name="mk_6x16_b64x128_packB_swp2"),
+            GemmLoopSchedule(mode="tiled_microkernel", bm=96, bn=96, bk=64, mr=6, nr=16, pack_b=True, unroll_k=2, vector_width=8, software_pipeline_stages=2, name="mk_6x16_b96_packB_swp2"),
+        ]
+
+    def tune_matmul(
+        self,
+        M: int,
+        N: int,
+        K: int,
+        candidates: Optional[List[Any]] = None,
+        cost_model: Optional[Any] = None,
+    ) -> Tuple[AutoTuneTrial, List[AutoTuneTrial]]:
+        """Benchmarks candidate Loop-IR schedules on real CPU and returns (best_trial, all_trials)."""
+        from compiler.ir.lowering import lower_graph_to_loop_ir
+        from compiler.midend.loop_schedule import SoftwarePipeliningPass
+        from compiler.midend.memory_planner import MemoryPlanningPass
+        from compiler.backend.loop_c_emitter import LoopIRCCodegen
+        from runtime.native_jit import NativeCJitExecutor
+
+        # Build standalone GEMM graph with planned offsets
+        g = Graph(name=f"autotune_gemm_{M}x{N}x{K}")
+        x = Tensor("X", (M, K))
+        w = Tensor("W", (K, N))
+        g.add_input(x)
+        g.add_input(w)
+        n_mm, y = ops.matmul(x, w, name="mm")
+        g.add_node(n_mm)
+        g.set_outputs([y])
+        _, planned_bytes, _ = MemoryPlanningPass(alignment=64).run(g)
+
+        # Deterministic synthetic inputs
+        x_flat = [((i * 17 + 3) % 29 - 14) * 0.05 for i in range(M * K)]
+        w_flat = [((i * 13 + 7) % 31 - 15) * 0.05 for i in range(K * N)]
+        offsets = {"X": x.allocated_offset or 0, "W": w.allocated_offset or 0, y.name: y.allocated_offset or 0}
+        flops = 2.0 * M * N * K
+
+        cand_list = candidates if candidates is not None else self.default_candidates(M, N, K)
+        trials: List[AutoTuneTrial] = []
+
+        for sched in cand_list:
+            loop_mod = lower_graph_to_loop_ir(g, planned_bytes, sram_bytes=64 * 1024, num_cores=1, schedule=sched)
+            if sched.software_pipeline_stages >= 2:
+                loop_mod = SoftwarePipeliningPass(num_stages=sched.software_pipeline_stages).run(loop_mod)
+            c_src = LoopIRCCodegen(num_cores=1).emit_module(loop_mod, g)
+            jit = NativeCJitExecutor(c_src, planned_bytes, extra_cflags=self.extra_cflags)
+            if not jit.is_available:
+                raise RuntimeError(f"HostCPUAutotuner JIT compile failed for {sched.label()}: {jit.compile_error}")
+            bm = jit.benchmark(
+                {"X": x_flat, "W": w_flat},
+                offsets,
+                [y.name],
+                {y.name: (M, N)},
+                num_cores=1,
+                warmup=self.warmup,
+                repeat=self.repeat,
+            )
+            median_ms = bm["median_ms"]
+            min_ms = bm["min_ms"]
+            gflops = flops / (min_ms * 1e6) if min_ms > 0 else 0.0
+            trials.append(AutoTuneTrial(
+                schedule=sched,
+                median_ms=median_ms,
+                min_ms=min_ms,
+                gflops=gflops,
+                c_code_len=len(c_src),
+            ))
+
+        trials.sort(key=lambda t: t.min_ms)
+        self.history = trials
+        best = trials[0]
+
+        if cost_model is not None and hasattr(cost_model, "calibrate_from_measurement"):
+            cost_model.calibrate_from_measurement(best.gflops)
+
+        return best, trials
+
+    def tune_graph(self, graph: Graph, cost_model: Optional[Any] = None) -> Dict[str, AutoTuneTrial]:
+        """Auto-tunes every 2D MatMul-like node in `graph` and attaches winning `loop_schedule`."""
+        winners: Dict[str, AutoTuneTrial] = {}
+        shape_cache: Dict[Tuple[int, int, int], AutoTuneTrial] = {}
+        for node in graph.nodes:
+            if node.op_type in ("matmul", "fused_matmul_add", "fused_matmul_add_relu") and len(node.inputs) >= 2:
+                a, b = node.inputs[0], node.inputs[1]
+                if len(a.shape) == 2 and len(b.shape) == 2 and all(isinstance(d, int) for d in (*a.shape, *b.shape)):
+                    key = (a.shape[0], b.shape[1], a.shape[1])
+                    if key not in shape_cache:
+                        best, _ = self.tune_matmul(*key, cost_model=cost_model)
+                        shape_cache[key] = best
+                    best = shape_cache[key]
+                    node.attrs["loop_schedule"] = best.schedule
+                    node.attrs["optimal_tiling"] = (best.schedule.bm, best.schedule.bn, best.schedule.bk)
+                    node.attrs["measured_gflops"] = best.gflops
+                    winners[node.name] = best
+        return winners

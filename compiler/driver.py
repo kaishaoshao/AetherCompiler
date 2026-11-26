@@ -38,7 +38,8 @@ class CompiledArtifact:
         asm_source: str,
         profiler: NPUPerformanceProfiler,
         num_cores: int = 4,
-        solver: Optional[SymbolicConstraintSolver] = None
+        solver: Optional[SymbolicConstraintSolver] = None,
+        unified_result: Optional[Any] = None,
     ):
         self.name = name
         self.original_graph = original_graph
@@ -53,6 +54,7 @@ class CompiledArtifact:
         self.profiler = profiler
         self.num_cores = num_cores
         self.solver = solver
+        self.unified_result = unified_result
 
     def save_c(self, path: str):
         """Writes freestanding C driver source to disk."""
@@ -211,72 +213,66 @@ class AetherCompiler:
         """Delegates to the unified 5-stage AetherPipeline sharing this driver's CompileContext."""
         from compiler.pipeline import AetherPipeline
         self.context.verify_after_each = pipeline_kwargs.pop("verify_after_each", True)
+        pipeline_kwargs.setdefault("target", self.target)
+        pipeline_kwargs.setdefault("print_after_all", self.print_after_all)
         return AetherPipeline(context=self.context, **pipeline_kwargs).compile(graph)
 
     def create_optimization_pipeline(self) -> PassManager:
-        """Constructs the progressive optimization pipeline from specification."""
-        if isinstance(self.pipeline, str):
-            return PassManager.from_pipeline_string(
-                self.pipeline,
-                print_after_all=self.print_after_all,
-                sram_capacity_bytes=self.sram_bytes,
-                num_cores=self.num_cores
-            )
-        elif isinstance(self.pipeline, list):
-            pm = PassManager(name="ZenNPU_CustomPipeline", print_after_all=self.print_after_all)
-            for p in self.pipeline:
-                if isinstance(p, str):
-                    pm.add_pass_by_name(p, sram_capacity_bytes=self.sram_bytes, num_cores=self.num_cores)
-                else:
-                    pm.add_pass(p)
-            return pm
-        else:
-            pm = PassManager(name="ZenNPU_StandardPipeline", print_after_all=self.print_after_all)
-            pm.add_pass_by_name("const-fold", sram_capacity_bytes=self.sram_bytes)
-            pm.add_pass_by_name("h-fusion")
-            pm.add_pass_by_name("fusion")
-            pm.add_pass_by_name("dce")
-            return pm
+        """Constructs the progressive optimization pipeline strictly through AetherPipeline + PassRegistry."""
+        from compiler.pipeline import AetherPipeline
+        return AetherPipeline(
+            context=self.context,
+            pass_pipeline=self.pipeline,
+            target=self.target,
+            print_after_all=self.print_after_all,
+        ).build_pass_manager()
 
-    def compile(self, graph: Graph, solver: Optional[SymbolicConstraintSolver] = None) -> CompiledArtifact:
+    def compile(
+        self,
+        graph: Graph,
+        solver: Optional[SymbolicConstraintSolver] = None,
+        use_loop_ir_codegen: bool = False,
+        loop_schedule: Optional[Any] = None,
+    ) -> CompiledArtifact:
         """
-        Compiles high-level computation graph down to machine code artifact.
-        Supports both concrete integer graphs and SymInt dynamic symbolic graphs!
+        Single unified compilation entry point: delegates all 5 stages to `AetherPipeline`
+        (backed by `PassRegistry`, `RewriteDriver`, and `CompileContext`) and wraps the
+        output into a `CompiledArtifact` with optional RV64 assembly emission.
         """
+        from compiler.pipeline import AetherPipeline
+
         active_solver = solver or self.solver
         if active_solver:
+            self.context.solver = active_solver
             for t in graph.get_all_tensors():
                 t.set_solver(active_solver)
 
-        # Calculate naive baseline memory requirement
+        # Calculate naive baseline memory requirement on untouched original_graph
         offset = 0
         for t in graph.get_all_tensors():
             t.allocated_offset = offset
             offset = (offset + t.size_in_bytes + 63) & ~63
         naive_bytes = offset
 
-        # 1. Run Mid-End Optimization Pipeline
-        pipeline = self.create_optimization_pipeline()
-        fused_graph = pipeline.run(graph)
-
-        # 2. Dynamic Memory Planning (MAX MGP)
-        mem_planner = PassRegistry.create_pass("memory-planning", alignment=64, solver=active_solver)
-        _, planned_bytes, _ = mem_planner.run(fused_graph)
-
-        # 3. Flow Dispatch Formation (IREE Flow Dialect with Heterogeneous Routing)
-        flow_pass = PassRegistry.create_pass("flow-dispatch", num_npu_cores=self.num_cores, target=self.target)
-        executables, dispatch_regions = flow_pass.run(fused_graph)
-        from compiler.midend.flow_dispatch import FlowModule
-        flow_module = FlowModule(name=f"{graph.name}_flow", executables=executables, dispatch_regions=dispatch_regions)
-
-        # 4. Progressive Lowering to Loop IR (TIR)
-        loop_ir_module = self.codegen.lower_to_loop_ir(fused_graph, planned_bytes)
-
-        # 5. Progressive Lowering to Command IR (HAL / Stream)
-        command_ir_module = self.codegen.lower_to_command_ir(loop_ir_module, planned_bytes)
-
-        # 6. Emit Machine Code (Freestanding C & RV64 Assembly)
-        c_code = self.codegen.generate(fused_graph, planned_bytes)
+        # Run the SINGLE unified AetherPipeline on a non-destructive clone
+        prev_verify = self.context.verify_after_each
+        self.context.verify_after_each = False
+        try:
+            unified = AetherPipeline(
+                context=self.context,
+                pass_pipeline=self.pipeline,
+                enable_inplace=False,
+                enable_dma_routing=False,
+                enable_flow_dispatch=True,
+                enable_loop_lowering=True,
+                use_loop_ir_codegen=use_loop_ir_codegen,
+                loop_schedule=loop_schedule,
+                target=self.target,
+                print_after_all=self.print_after_all,
+                clone_input=True,
+            ).compile(graph)
+        finally:
+            self.context.verify_after_each = prev_verify
 
         # Assemble RV64 assembly via clang if available
         asm_code = ""
@@ -293,7 +289,7 @@ class AetherCompiler:
                 "-",
                 "-o", "-"
             ]
-            res = subprocess.run(clang_cmd, input=c_code, text=True, capture_output=True, check=True)
+            res = subprocess.run(clang_cmd, input=unified.c_source, text=True, capture_output=True, check=True)
             asm_code = res.stdout
         except Exception:
             asm_code = "// Clang riscv64 target compiler not present on host."
@@ -301,15 +297,16 @@ class AetherCompiler:
         return CompiledArtifact(
             name=graph.name,
             original_graph=graph,
-            fused_graph=fused_graph,
+            fused_graph=unified.graph,
             naive_bytes=naive_bytes,
-            planned_bytes=planned_bytes,
-            flow_ir=flow_module,
-            loop_ir=loop_ir_module,
-            command_ir=command_ir_module,
-            c_source=c_code,
+            planned_bytes=unified.planned_memory_bytes,
+            flow_ir=unified.flow_ir,
+            loop_ir=unified.loop_ir,
+            command_ir=unified.command_ir,
+            c_source=unified.c_source,
             asm_source=asm_code,
             profiler=self.profiler,
             num_cores=self.num_cores,
-            solver=active_solver
+            solver=active_solver,
+            unified_result=unified,
         )

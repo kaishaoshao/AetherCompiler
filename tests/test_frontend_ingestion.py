@@ -76,7 +76,6 @@ def test_safetensors_roundtrip():
     if os.path.exists(temp_path):
         os.remove(temp_path)
     print("  >>> SafeTensors Ingestion Verified Successfully! <<<\n")
-    return loaded_sf
 
 
 def test_fx_importer_and_compilation():
@@ -123,7 +122,6 @@ def test_fx_importer_and_compilation():
     print(f"  [Compiled Artifact] Planned DRAM footprint: {artifact.planned_bytes:,} Bytes")
     print(f"  [Code Generation] Emitted {len(artifact.asm_source.splitlines())} lines of RV64 assembly.")
     print("  >>> PyTorch FX Graph Ingestion and Lowering Verified Successfully! <<<\n")
-    return artifact
 
 
 def test_mlir_parser_roundtrip():
