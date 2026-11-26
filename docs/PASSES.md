@@ -189,3 +189,26 @@ class MyCustomOptimizationPass:
 注册完成后，该 Pass 立即支持：
 1. 包含在 `PassRegistry.list_passes()` 与自动生成的文档表格中；
 2. 直接通过字符串流水线调用：`AetherCompiler(pipeline="my-custom-opt{threshold=0.8},fusion,dce")`。
+
+
+---
+
+## 扩展与统一框架新增 Pass 目录（`v0.12.0` – `v0.16.0`）
+
+以下 Pass 已全部注册到 `PassRegistry` 并集成至五阶段统一流水线 `AetherPipeline`（`compiler/pipeline.py`）：
+
+| Pass Name (CLI Flag) | 类名 | 阶段 | 别名 | 核心功能 |
+|---|---|---|---|---|
+| `rewrite-driver` | `RewriteDriver` | `graph` | `greedy-rewrite`, `pattern-driver` | 统一按 `benefit` 排序的 SSA Def-Use 重写驱动（覆盖 FlashAttention / AddRMSNorm / MatMulAdd[ReLU] / SwiGLU / GeGLU / PagedKVAppend + 支柱 4 `CustomKernel` 竞争目标） |
+| `general-fusion` | `GeneralFusionPass` | `graph` | `dom-fusion`, `fuse-ops` | TVM 风格后支配树通用算子融合（链式、菱形 DAG 与 MatMul Epilogue → `fused_region`） |
+| `graph-scheduler` | `GraphSchedulerPass` | `graph` | `schedule-graph`, `sethi-ullman` | Sethi-Ullman 峰值内存最小化与通信延迟隐藏调度（严格遵守 `OpEffect` 顺序） |
+| `global-layout` | `GlobalLayoutPropagationPass` | `graph` | `layout-prop`, `layout-assignment` | 全图双向物理布局传播、N-D `permute` 合成/消去、二元布局提取与常量权重预折叠 |
+| `egraph-opt` | `EGraphOptimizationPass` | `graph` | `egraph`, `equality-saturation` | E-Graph 饱和等价重写（矩阵链结合律、分配律提取、融合同图寻优，消除 Phase Ordering） |
+| `amp` | `MixedPrecisionPass` | `graph` | `mixed-precision` | 自动混合精度（FP16 / BF16 / FP8 E4M3 / E5M2 真实舍入 + FP32 敏感算子保护 + 冗余 Cast 消除） |
+| `kv-quant` | `KVQuantizationPass` | `graph` | `kv-cache-quant`, `fp8-kv` | 分页 KV Cache 量化（FP8 E4M3 / FP16 / INT8，显存压缩 2×–4×） |
+| `split-k` | `SplitKMatMulPass` | `graph` | `decode-split`, `split-k-gemm` | Decode 小 `M` GEMV Split-K / Split-N 多核饱和切分 |
+| `comm-overlap` | `ComputeCommOverlapPass` | `graph` | `async-allreduce`, `compute-comm-overlap` | Row-Parallel MatMul + 异步 AllReduce 微块流水重叠 |
+| `rematerialization` | `RematerializationAndTieringPass` | `graph` | `remat`, `auto-tiering` | 代价驱动自动重算轻量算子 vs 跨级换出（SRAM↔HBM↔CXL）+ 多步前瞻预取 |
+| `data-movement-routing` | `DataMovementRoutingPass` | `graph -> flow` | `data-movement`, `dma-routing` | 异构芯片 Dijkstra 最短路径多跳 DMA 路由、片上缓冲复用与 Ping-Pong 双缓冲调度 |
+| `inplace-buffer` | `InPlaceBufferPass` | `graph` | `inplace`, `buffer-aliasing` | 活性验证的安全原地 Buffer 复用（元素级 / 残差 / 可变 KV Pool） |
+| `software-pipelining` | `SoftwarePipeliningPass` | `tir` | `swp`, `loop-pipeline` | Loop IR 真实 N-Stage 软件流水改写（`PROLOGUE` / `STEADY_STATE_KERNEL` / `EPILOGUE`） |

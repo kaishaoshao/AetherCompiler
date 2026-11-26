@@ -16,7 +16,7 @@ This pass eliminates that bubble by:
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from compiler.frontend import Graph, OpNode, Tensor, ops
 from compiler.pass_manager import CompilerPass, register_pass
@@ -53,12 +53,20 @@ class ComputeCommOverlapPass(CompilerPass):
         compute_flops_per_cycle: float = 512.0,
         link_bw_bytes_per_cycle: float = 32.0,
         collective_startup_cycles: int = 16,
+        cost_model: Optional[Any] = None,
     ):
         super().__init__()
         self.num_chunks = max(2, num_chunks)
-        self.compute_flops_per_cycle = compute_flops_per_cycle
-        self.link_bw_bytes_per_cycle = link_bw_bytes_per_cycle
-        self.collective_startup_cycles = collective_startup_cycles
+        self.cost_model = cost_model
+        self.compute_flops_per_cycle = (
+            cost_model.chip_flops_per_cycle() if cost_model is not None else compute_flops_per_cycle
+        )
+        self.link_bw_bytes_per_cycle = (
+            cost_model.default_bw_bytes_per_cycle if cost_model is not None else link_bw_bytes_per_cycle
+        )
+        self.collective_startup_cycles = (
+            cost_model.default_dma_latency_cycles if cost_model is not None else collective_startup_cycles
+        )
         self.records: List[CommOverlapRecord] = []
 
     def _rewire(self, old_t: Tensor, new_t: Tensor, nodes: List[OpNode], graph: Graph):

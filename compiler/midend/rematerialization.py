@@ -128,6 +128,7 @@ class RematerializationAndTieringPass(CompilerPass):
         compute_flops_per_cycle: float = 128.0,
         lookahead_steps: int = 2,
         min_reuse_distance: int = 2,
+        cost_model: Optional[Any] = None,
     ):
         super().__init__()
         self.fast_tier_budget_bytes = fast_tier_budget_bytes
@@ -138,9 +139,12 @@ class RematerializationAndTieringPass(CompilerPass):
         self.compute_flops_per_cycle = compute_flops_per_cycle
         self.lookahead_steps = lookahead_steps
         self.min_reuse_distance = min_reuse_distance
+        self.cost_model = cost_model
         self.report = RematerializationReport(fast_tier_budget_bytes)
 
     def _estimate_node_cycles(self, node: OpNode) -> int:
+        if self.cost_model is not None:
+            return self.cost_model.estimate_compute_cycles(node)
         if node.op_type in ("matmul", "fused_matmul_add", "fused_matmul_add_relu"):
             s0, s1 = node.inputs[0].shape, node.inputs[1].shape
             flops = 2 * int(s0[-2]) * int(s0[-1]) * int(s1[-1])

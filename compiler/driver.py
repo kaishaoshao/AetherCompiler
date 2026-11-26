@@ -191,6 +191,14 @@ class AetherCompiler:
         self.solver = solver
         self.pipeline = pipeline or "const-fold,h-fusion,fusion,dce"
 
+        from compiler.context import CompileContext
+        self.context = CompileContext(
+            solver=solver,
+            num_cores=num_cores,
+            sram_budget_bytes=self.sram_bytes,
+            verify_after_each=False,
+        )
+
         self.hw_profile = NPUHardwareProfile(
             frequency_ghz=freq_ghz,
             num_cores=num_cores,
@@ -198,6 +206,12 @@ class AetherCompiler:
         )
         self.profiler = NPUPerformanceProfiler(self.hw_profile)
         self.codegen = RiscvNpuCodeGenerator(sram_bytes=self.sram_bytes, num_cores=num_cores)
+
+    def compile_unified(self, graph: Graph, **pipeline_kwargs):
+        """Delegates to the unified 5-stage AetherPipeline sharing this driver's CompileContext."""
+        from compiler.pipeline import AetherPipeline
+        self.context.verify_after_each = pipeline_kwargs.pop("verify_after_each", True)
+        return AetherPipeline(context=self.context, **pipeline_kwargs).compile(graph)
 
     def create_optimization_pipeline(self) -> PassManager:
         """Constructs the progressive optimization pipeline from specification."""

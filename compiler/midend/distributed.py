@@ -111,7 +111,7 @@ class TensorParallelPass:
         ws: int
     ) -> Tuple[List[OpNode], Optional[OpNode]]:
         """Finds elementwise chain and downstream row-parallel matmul partner."""
-        active_tensors = {col_node.outputs[0].name}
+        active_tensors = {o.name for o in col_node.outputs}
         mid_ops: List[OpNode] = []
         for candidate in nodes[start_idx + 1:]:
             if any(inp.name in active_tensors for inp in candidate.inputs):
@@ -309,12 +309,12 @@ class TensorParallelPass:
                 continue
 
             eff_ws = self._effective_world_size(node)
-            if eff_ws > 1 and node.op_type == "matmul" and len(node.inputs) >= 2:
+            if eff_ws > 1 and node.op_type in ("matmul", "fused_horizontal_qkv_matmul") and len(node.inputs) >= 2:
                 w1 = node.inputs[1]
                 if len(w1.shape) == 2 and isinstance(w1.shape[1], int) and w1.shape[1] % eff_ws == 0:
                     mid_ops, row_partner = self._find_row_partner(i, node, nodes, eff_ws)
 
-                    if self.materialize_shards:
+                    if self.materialize_shards and node.op_type == "matmul":
                         if row_partner is not None:
                             consumed.add(node)
                             consumed.update(mid_ops)

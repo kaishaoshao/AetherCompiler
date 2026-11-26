@@ -14,7 +14,7 @@ Core Architectural Innovations:
    - Reduces DMA descriptor submission overhead and hardware dispatch barriers.
 """
 
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 from collections import defaultdict
 from compiler.frontend import Graph, OpNode, Tensor, OpRegistry, OpTrait, ops
 from compiler.frontend.nd_utils import flatten_nd, unflatten_nd, concat_nd
@@ -40,12 +40,13 @@ class HorizontalFusionPass:
         - concat_weights=True: packs `[W_1, ..., W_k]` along axis=1 (compile-time folded
           when static constants!) into ONE single large `matmul` + `slice` outputs!
         """
-        # 1. Group matmul nodes by their first input (activation X)
-        groups: Dict[str, List[OpNode]] = defaultdict(list)
+        # 1. Group matmul nodes by (activation X, placement chip, tp_world_size)
+        groups: Dict[Tuple[str, Any, int], List[OpNode]] = defaultdict(list)
         for node in graph.nodes:
             if node.op_type == "matmul" and len(node.inputs) >= 2:
                 act_tensor = node.inputs[0]
-                groups[act_tensor.name].append(node)
+                key = (act_tensor.name, node.get_placement_chip(), node.get_tp_world_size())
+                groups[key].append(node)
 
         nodes_to_remove: Set[OpNode] = set()
         fused_nodes: List[OpNode] = []
@@ -99,7 +100,8 @@ class HorizontalFusionPass:
                         op_type="fused_horizontal_qkv_matmul",
                         inputs=[act_tensor] + weights,
                         outputs=outputs,
-                        name=f"fused_horizontal_{sibling_nodes[0].name}_group"
+                        name=f"fused_horizontal_{sibling_nodes[0].name}_group",
+                        placement_spec=sibling_nodes[0].placement_spec,
                     )
                     fused_nodes.append(fused_node)
                     nodes_to_remove.update(sibling_nodes)

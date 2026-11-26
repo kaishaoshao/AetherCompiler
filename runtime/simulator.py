@@ -26,11 +26,13 @@ def unflatten(flat: List[float], shape: Tuple[int, ...]):
 
 class VirtualNPUSimulator:
     def __init__(self, dram_size_bytes: int):
-        self.dram_size_floats = max(1, dram_size_bytes // 4)
-        self.dram = [0.0] * self.dram_size_floats
+        # Byte-indexed virtual DRAM (1 slot per byte guarantees zero collision for FP8/INT8/FP16/BF16/FP32
+        # while preserving exact In-Place offset aliasing!).
+        self.dram_size_bytes = max(1, dram_size_bytes)
+        self.dram = [0.0] * self.dram_size_bytes
 
     def write_tensor(self, tensor: Tensor, data: List):
-        start = tensor.allocated_offset // 4
+        start = tensor.allocated_offset
         flat = flatten(data)
         end = start + len(flat)
         if end > len(self.dram):
@@ -38,7 +40,7 @@ class VirtualNPUSimulator:
         self.dram[start:end] = flat
 
     def read_tensor(self, tensor: Tensor) -> List:
-        start = tensor.allocated_offset // 4
+        start = tensor.allocated_offset
         flat = self.dram[start : start + tensor.num_elements]
         return unflatten(flat, tensor.shape)
 

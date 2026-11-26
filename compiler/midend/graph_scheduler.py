@@ -17,7 +17,7 @@ Reorders independent nodes in a Graph DAG while preserving all data dependencies
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from compiler.frontend import Graph, OpNode, Tensor
 from compiler.pass_manager import CompilerPass, register_pass
@@ -138,14 +138,21 @@ class GraphSchedulerPass(CompilerPass):
       - minimize peak intermediate activation memory (`strategy="min_peak_memory"`), or
       - hide communication / DMA latency behind independent compute (`strategy="latency_hiding"`).
     """
-    def __init__(self, strategy: str = "min_peak_memory"):
+    def __init__(self, strategy: str = "min_peak_memory", cost_model: Optional[Any] = None):
         super().__init__()
         if strategy not in ("min_peak_memory", "latency_hiding"):
             raise ValueError(f"Unknown strategy '{strategy}'. Choose 'min_peak_memory' or 'latency_hiding'.")
         self.strategy = strategy
+        self.cost_model = cost_model
         self.report = ScheduleReport(strategy, 0, 0)
 
+    def _node_cycles(self, node: OpNode) -> int:
+        if self.cost_model is not None:
+            return self.cost_model.estimate_compute_cycles(node)
+        return _est_node_cycles(node)
+
     def _build_dag(self, nodes: List[OpNode]) -> Tuple[List[Set[int]], List[Set[int]]]:
+        from compiler.frontend import OpRegistry
         n = len(nodes)
         producer: Dict[str, int] = {}
         for i, node in enumerate(nodes):
@@ -153,12 +160,21 @@ class GraphSchedulerPass(CompilerPass):
                 producer[out.name] = i
         preds: List[Set[int]] = [set() for _ in range(n)]
         succs: List[Set[int]] = [set() for _ in range(n)]
+        last_write_idx: Optional[int] = None
         for i, node in enumerate(nodes):
             for inp in node.inputs:
                 p = producer.get(inp.name)
                 if p is not None and p != i:
                     preds[i].add(p)
                     succs[p].add(i)
+            # Enforce OpEffect ordering barrier across consecutive stateful WRITE ops!
+            if OpRegistry.has(node.op_type) and OpRegistry.get(node.op_type).has_side_effects:
+                from compiler.frontend.ir_core import OpEffect
+                if OpEffect.WRITE in OpRegistry.get(node.op_type).effects:
+                    if last_write_idx is not None:
+                        preds[i].add(last_write_idx)
+                        succs[last_write_idx].add(i)
+                    last_write_idx = i
         return preds, succs
 
     def _compute_sethi_ullman_weights(self, nodes: List[OpNode], preds: List[Set[int]]) -> List[int]:

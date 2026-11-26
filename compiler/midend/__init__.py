@@ -38,6 +38,7 @@ from .graph_scheduler import (
 )
 from .global_layout import GlobalLayoutPropagationPass, GlobalLayoutReport
 from .egraph import EGraph, ENode, EClass, EGraphOptimizationPass, EGraphReport
+from .mixed_precision import MixedPrecisionPass, KVQuantizationPass, AMPReport
 
 __all__ = [
     "OperatorFusionPass",
@@ -110,5 +111,8 @@ __all__ = [
     "ENode",
     "EClass",
     "EGraphOptimizationPass",
-    "EGraphReport"
+    "EGraphReport",
+    "MixedPrecisionPass",
+    "KVQuantizationPass",
+    "AMPReport"
 ]

@@ -78,6 +78,8 @@ class DType:
 FLOAT32 = DType("float32", 32, DTypeCategory.FLOAT)
 FLOAT16 = DType("float16", 16, DTypeCategory.FLOAT)
 BFLOAT16 = DType("bfloat16", 16, DTypeCategory.FLOAT)
+FP8_E4M3 = DType("fp8_e4m3", 8, DTypeCategory.FLOAT)
+FP8_E5M2 = DType("fp8_e5m2", 8, DTypeCategory.FLOAT)
 INT32 = DType("int32", 32, DTypeCategory.INT)
 INT16 = DType("int16", 16, DTypeCategory.INT)
 INT8 = DType("int8", 8, DTypeCategory.INT)
@@ -95,6 +97,11 @@ DTYPE_MAP: Dict[str, DType] = {
     "half": FLOAT16,
     "bfloat16": BFLOAT16,
     "bf16": BFLOAT16,
+    "fp8_e4m3": FP8_E4M3,
+    "fp8": FP8_E4M3,
+    "f8e4m3": FP8_E4M3,
+    "fp8_e5m2": FP8_E5M2,
+    "f8e5m2": FP8_E5M2,
     "int32": INT32,
     "int": INT32,
     "int16": INT16,
