@@ -1,6 +1,6 @@
 from .loop_ir import (
     Buffer, Stmt, AllocBuffer, FreeBuffer, DmaTransfer, DmaBarrier,
-    KernelCall, ForLoop, RawCodeStmt, LoopFunction, LoopModule
+    KernelCall, ForLoop, PipelineSection, RawCodeStmt, LoopFunction, LoopModule
 )
 from .command_ir import (
     Command, CmdComment, CmdDmaAsync, CmdDmaWait, CmdCustom0Op,
@@ -45,7 +45,7 @@ from .chip_composition import (
 
 __all__ = [
     "Buffer", "Stmt", "AllocBuffer", "FreeBuffer", "DmaTransfer", "DmaBarrier",
-    "KernelCall", "ForLoop", "RawCodeStmt", "LoopFunction", "LoopModule",
+    "KernelCall", "ForLoop", "PipelineSection", "RawCodeStmt", "LoopFunction", "LoopModule",
     "Command", "CmdComment", "CmdDmaAsync", "CmdDmaWait", "CmdCustom0Op",
     "CmdKernelCall", "CmdRawCode", "CommandModule",
     "CmdChannelAlloc", "CmdInterChipSendAsync", "CmdInterChipRecvAsync",

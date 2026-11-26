@@ -94,7 +94,8 @@ class DispatchRegion:
         chunk_bytes: int = 4096,
         is_cross_chip: bool = False,
         offload_approved: bool = True,
-        rejection_reason: str = ""
+        rejection_reason: str = "",
+        dispatch_strategy: str = "default"
     ):
         self.dispatch_id = dispatch_id
         self.executable = executable
@@ -108,6 +109,7 @@ class DispatchRegion:
         self.is_cross_chip = is_cross_chip
         self.offload_approved = offload_approved
         self.rejection_reason = rejection_reason
+        self.dispatch_strategy = dispatch_strategy
 
     def __repr__(self) -> str:
         bindings_str = ", ".join([f"s{b.slot}: '{b.tensor.name}'" for b in self.bindings])
@@ -286,18 +288,45 @@ class FlowDispatchPass:
                 queue_name = eng.queue_name
 
             # 2. Calculate Grid Dimensions (IREE workgroup counts)
+            # Adaptive Prefill (M-parallel) vs Decode (Split-N / Split-K) multi-core saturation!
             out_tensor = node.outputs[0]
+            dispatch_strategy = node.attrs.get("dispatch_strategy", "default")
             if engine_kind_str == "fixed_asic":
                 # Fixed-function ASICs run as dedicated monolithic hardware pipelines
                 grid = (1, 1, 1)
+                dispatch_strategy = "fixed_asic_monolithic"
             elif OpTrait.MATMUL_LIKE in op_def.traits:
                 M = out_tensor.shape[-2] if len(out_tensor.shape) >= 2 else out_tensor.shape[0]
-                gx = min(self.num_npu_cores, M) if isinstance(M, int) else self.num_npu_cores
-                grid = (gx, 1, 1)
+                N = out_tensor.shape[-1] if len(out_tensor.shape) >= 2 else 1
+                K = node.inputs[0].shape[-1] if node.inputs and len(node.inputs[0].shape) >= 2 else 1
+                if not isinstance(M, int) or M >= self.num_npu_cores:
+                    grid = (self.num_npu_cores, 1, 1)
+                    dispatch_strategy = "prefill_row_parallel"
+                else:
+                    # Decode / Small-M regime: saturate remaining cores via Split-N or Split-K!
+                    rem_cores = max(1, self.num_npu_cores // max(1, M))
+                    if isinstance(N, int) and N >= rem_cores and dispatch_strategy != "decode_split_k":
+                        gy = min(rem_cores, N)
+                        grid = (M, gy, 1)
+                        dispatch_strategy = "decode_split_n"
+                    elif isinstance(K, int) and K >= rem_cores:
+                        gz = min(rem_cores, K)
+                        grid = (M, 1, gz)
+                        dispatch_strategy = "decode_split_k"
+                    else:
+                        grid = (M, 1, 1)
+                        dispatch_strategy = "small_gemm"
             else:
                 total_work = out_tensor.shape[0]
-                gx = min(self.num_npu_cores, total_work) if isinstance(total_work, int) else self.num_npu_cores
-                grid = (gx, 1, 1)
+                if isinstance(total_work, int) and total_work < self.num_npu_cores and len(out_tensor.shape) >= 2:
+                    inner = out_tensor.shape[-1]
+                    gy = min(self.num_npu_cores // max(1, total_work), inner) if isinstance(inner, int) else 1
+                    grid = (total_work, max(1, gy), 1)
+                    dispatch_strategy = "decode_channel_parallel"
+                else:
+                    gx = min(self.num_npu_cores, total_work) if isinstance(total_work, int) else self.num_npu_cores
+                    grid = (gx, 1, 1)
+                    dispatch_strategy = "row_parallel"
 
             # 3. Build argument bindings (Inputs: Read, Outputs: Write)
             bindings: List[BufferBinding] = []
@@ -341,7 +370,8 @@ class FlowDispatchPass:
                 chunk_bytes=chunk_bytes,
                 is_cross_chip=is_cross_chip,
                 offload_approved=offload_approved,
-                rejection_reason=rejection_reason
+                rejection_reason=rejection_reason,
+                dispatch_strategy=dispatch_strategy
             )
             dispatch_regions.append(region)
 

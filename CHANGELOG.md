@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.13.0] - 2026-11-26
+
+### Added
+- **Compiler Optimization Roadmap & Agent Governance**:
+  - Created `docs/compiler/05_COMPILER_OPTIMIZATION_ROADMAP_AND_GAPS.md` systematically cataloging unimplemented compiler optimizations across Graph IR, Memory/Storage, Loop IR, Precision/Quantization, Distributed Parallelism, Dynamic Specialization, and Backend Codegen.
+  - Added **Rule 6 (铁律 6：每次代码修改必须同步更新 CHANGELOG)** to `.agent/AETHER_COMPILER_CORE_SKILLS.md` and `docs/AETHER_COMPILER_CORE_SKILLS.md`.
+- **Direction 1 — Decode Split-K / Split-N & Prefill/Decode Dual-Path Specialization (`compiler/midend/specialization.py`, `compiler/midend/flow_dispatch.py`)**:
+  - Upgraded `FlowDispatchPass` so small-`M` Decode GEMVs (`M < num_cores`) saturate all NPU cores via adaptive `decode_split_n` / `decode_split_k` workgroup grids instead of degenerating to 1 core.
+  - Implemented `SplitKMatMulPass` (`split-k`) supporting both materialized `split_k` (with partial-sum `all_reduce`) and `split_n` (with `concat`), bit-exact verified (`max_diff <= 2.78e-17`).
+  - Implemented `PrefillDecodeSpecializer` & `DualPathBundle` compiling a single symbolic `SymInt('S')` graph into compute-bound NPU Prefill (`S > 1`) and memory-bound Split-K/PIM Decode (`S == 1`, lifting 4-core utilization from `25% -> 100%`, `max_diff = 0.00e+00`).
+  - Added `tests/test_dual_path_specialization.py` (3/3 passing).
+- **Direction 2 — Cost-Model Driven Automatic Rematerialization & Cross-Tier Offload/Prefetch (`compiler/midend/rematerialization.py`)**:
+  - Implemented `RematerializationAndTieringPass` (`rematerialization`) evaluating recompute cycles vs cross-tier offload + lookahead prefetch cycles when fast-tier SRAM pressure exceeds budget.
+  - Registered `tier_offload` and `tier_prefetch` first-class communication ops; automatically rematerializes lightweight ops (`silu`/`rmsnorm`/`rope`) and offloads heavy `matmul` activations to `3D_DRAM_Stack_Tier` with multi-step lookahead prefetch hiding reload latency (`10,240 B -> 8,192 B`, `max_diff = 0.00e+00`).
+  - Added `tests/test_rematerialization_and_tiering.py` (2/2 passing).
+- **Direction 3 — General Post-Dominator Tree Operator Fusion & Safe In-Place Buffer Reuse (`compiler/midend/general_fusion.py`, `compiler/midend/inplace.py`)**:
+  - Implemented `GeneralFusionPass` (`general-fusion`) using `OpTrait`-derived `FusionKind` (`INJECTIVE`, `REDUCTION`, `OUT_EWISE_FUSABLE`, `OPAQUE`) and Cooper-Harvey-Kennedy Post-Dominator Tree construction to fuse arbitrary chains, MatMul epilogues, and diamond DAGs into `fused_region` macro-ops while preserving Pillar 1 `OPAQUE` boundaries (`max_diff = 0.00e+00`).
+  - Implemented `InPlaceBufferPass` (`inplace-buffer`) with liveness-verified buffer aliasing and `plan_memory_with_inplace()` for elementwise, residual-add, normalization, and mutable KV-cache pools (`paged_kv_append`), reducing peak DRAM (`12,416 B -> 10,368 B`; KV pool `580 B -> 324 B`) with bit-exact in-place DRAM execution.
+  - Added `tests/test_general_fusion_and_inplace.py` (3/3 passing).
+- **Direction 4 — Loop IR Multi-Level Tiling, N-Stage Software Pipelining & Compute-Communication Overlap (`compiler/ir/loop_ir.py`, `compiler/ir/lowering.py`, `compiler/midend/loop_schedule.py`, `compiler/midend/comm_overlap.py`)**:
+  - Extended `ForLoop` with `unroll_factor`, `vector_width`, `pipeline_stages`, `annotations`, and added `PipelineSection` (`PROLOGUE`, `STEADY_STATE_KERNEL`, `EPILOGUE`) lowered cleanly through `lower_loop_ir_to_command_ir`.
+  - Implemented composable Loop IR transforms (`split_loop`, `reorder_loops`, `unroll_loop`, `vectorize_loop`), 3-level tiling (`HBM -> L2 SRAM -> Core Local SRAM -> Register Micro-Kernel`), and `SoftwarePipeliningPass` (`software-pipelining`) supporting 2-Stage Ping-Pong (`1.29x`) and 3-Stage Multi-Tier Flash→HBM→SRAM→Compute (`1.93x`).
+  - Implemented `ComputeCommOverlapPass` (`comm-overlap`) chunking `RowParallel MatMul + AllReduce` into pipelined micro-chunks overlapping `async all_reduce` with next-chunk compute (`max_diff = 2.71e-18`).
+  - Added `tests/test_loop_pipelining_and_comm_overlap.py` (4/4 passing).
+
+---
+
+## [0.12.0] - 2026-11-26
+
+### Added
+- **AI Model Knowledge Documentation for Compiler Engineers (`docs/models/`)**:
+  - Added `README.md` and guides `01_TRANSFORMER_FUNDAMENTALS.md` through `07_PREFILL_DECODE_AND_SERVING_PATTERNS.md` covering Transformer GEMM topology, RMSNorm/SwiGLU fusion, MHA/MQA/GQA/MLA & RoPE, PagedAttention KV-Cache, MoE sparse routing, SafeTensors/model families, and Prefill/Decode specialization.
+- **N-Dimensional Virtual NPU Simulator & First-Class LLM Operators (`compiler/frontend/nd_utils.py`, `compiler/frontend/llm_ops.py`, `runtime/simulator.py`)**:
+  - Generalized `VirtualNPUSimulator` and standard reference ops to arbitrary N-D tensors with `load_constants()` and `run_reference()`.
+  - Registered first-class shape & LLM macro-ops: `reshape`, `permute`, `concat`, `slice_tensor`, `embedding`, `gather`, `topk`, `attention`, `paged_attention`, `paged_kv_append`, `fused_rope_paged_kv_append`, `moe_router`, `moe_combine`, and `all_reduce`.
+  - Added `tests/test_nd_simulator_and_shape_ops.py`.
+- **End-to-End HuggingFace Qwen2 Golden Reference Verification (`models/qwen.py`, `models/arch_registry.py`, `tests/test_e2e_golden.py`)**:
+  - Added HF-exact `Qwen2ForCausalLM` (Embedding + GQA + QKV Bias + Per-Head RoPE + Causal SDPA + SwiGLU + Final RMSNorm + LM Head) and `transpose_linear_weights=True` support in `AutoModelForCausalLM.from_pretrained()`.
+  - Verified compiled & fused Qwen2 artifact against an independent HF Qwen2 mathematical oracle (`max_diff = 2.38e-08`, fusion pass invariance `0.00e+00`, Prefill vs PagedDecode `0.00e+00`).
+- **Placement-Driven Tensor Parallelism & Ping-Pong Double Buffering (`compiler/midend/distributed.py`, `compiler/midend/data_movement.py`)**:
+  - Upgraded `TensorParallelPass` to read per-node `tp_world_size` from `with placement(..., tp_world_size=K):`, insert explicit `all_reduce` nodes, and support `materialize_shards=True` bit-exact simulation (`max_diff = 2.17e-17`).
+  - Upgraded `DataMovementRoutingPass` with `DoubleBufferPlan` Ping-Pong overlap analysis and `validate_placements()` (`strict_placement=True`).
+  - Added `tests/test_placement_tp_and_double_buffer.py`.
+- **Dynamic DeepSeek MoE Routing & `PagedKVCacheAppendPattern` (`models/deepseek.py`, `compiler/midend/fusion.py`)**:
+  - Upgraded `DeepseekMoE` to use real `gate` projection + `ops.moe_router` + `ops.moe_combine`.
+  - Implemented `PagedKVCacheAppendPattern` fusing `rope -> paged_kv_append` into `fused_rope_paged_kv_append`.
+  - Added `tests/test_moe_and_paged_attention.py`.
+
+---
+
 ## [0.11.0] - 2026-11-24
 
 ### Added

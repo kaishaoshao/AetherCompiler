@@ -100,8 +100,21 @@ class KernelCall(Stmt):
 
 
 class ForLoop(Stmt):
-    """Structured loop over an iteration variable."""
-    def __init__(self, var: str, start: str, end: str, step: str, body: List[Stmt], is_parallel: bool = False, core_id: Optional[str] = None):
+    """Structured loop over an iteration variable with optional schedule annotations."""
+    def __init__(
+        self,
+        var: str,
+        start: str,
+        end: str,
+        step: str,
+        body: List[Stmt],
+        is_parallel: bool = False,
+        core_id: Optional[str] = None,
+        unroll_factor: int = 1,
+        vector_width: int = 1,
+        pipeline_stages: int = 1,
+        annotations: Optional[Dict[str, Any]] = None,
+    ):
         self.var = var
         self.start = start
         self.end = end
@@ -109,11 +122,43 @@ class ForLoop(Stmt):
         self.body = body
         self.is_parallel = is_parallel
         self.core_id = core_id
+        self.unroll_factor = unroll_factor
+        self.vector_width = vector_width
+        self.pipeline_stages = pipeline_stages
+        self.annotations = annotations or {}
 
     def to_string(self, indent: int = 0) -> str:
         sp = "  " * indent
         prefix = "parallel_for" if self.is_parallel else "for"
-        lines = [f"{sp}{prefix} ({self.var} = {self.start}; {self.var} < {self.end}; {self.var} += {self.step}) {{"]
+        tags = []
+        if self.unroll_factor > 1:
+            tags.append(f"unroll={self.unroll_factor}")
+        if self.vector_width > 1:
+            tags.append(f"vectorize={self.vector_width}")
+        if self.pipeline_stages > 1:
+            tags.append(f"pipeline_stages={self.pipeline_stages}")
+        if self.annotations.get("tier"):
+            tags.append(f"tier={self.annotations['tier']}")
+        tag_str = f"  // [{', '.join(tags)}]" if tags else ""
+        lines = [f"{sp}{prefix} ({self.var} = {self.start}; {self.var} < {self.end}; {self.var} += {self.step}) {{{tag_str}"]
+        for stmt in self.body:
+            lines.append(stmt.to_string(indent + 1))
+        lines.append(f"{sp}}}")
+        return "\n".join(lines)
+
+
+class PipelineSection(Stmt):
+    """Explicit software-pipelining section (PROLOGUE, STEADY_STATE_KERNEL, EPILOGUE)."""
+    def __init__(self, stage_name: str, body: List[Stmt], num_stages: int = 2, comment: str = ""):
+        self.stage_name = stage_name
+        self.body = body
+        self.num_stages = num_stages
+        self.comment = comment
+
+    def to_string(self, indent: int = 0) -> str:
+        sp = "  " * indent
+        cmt = f" // {self.comment}" if self.comment else ""
+        lines = [f"{sp}pipeline.{self.stage_name.lower()}(stages={self.num_stages}) {{{cmt}"]
         for stmt in self.body:
             lines.append(stmt.to_string(indent + 1))
         lines.append(f"{sp}}}")

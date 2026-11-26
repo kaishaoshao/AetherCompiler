@@ -22,6 +22,16 @@ from .quantization import WeightQuantizationPass, QuantizedWeightTensor, WeightQ
 from .distributed import TensorParallelPass, TensorParallelPlanner, DistributedDeviceContext
 from .autotuner import TilingAutotunerPass, AnalyticalHardwareCostModel, TilingAutotuner
 from .data_movement import DataMovementRoutingPass, DataMovementReport, DoubleBufferPlan
+from .specialization import SplitKMatMulPass, PrefillDecodeSpecializer, DualPathBundle, PhaseTelemetry
+from .rematerialization import RematerializationAndTieringPass, RematerializationReport, MemoryActionRecord
+from .general_fusion import GeneralFusionPass, FusionKind, classify_op_fusion_kind
+from .inplace import InPlaceBufferPass, InPlaceDecision
+from .loop_schedule import (
+    split_loop, reorder_loops, unroll_loop, vectorize_loop,
+    MultiLevelTilingConfig, derive_multilevel_tiling, build_multilevel_gemm_loop_ir,
+    SoftwarePipeliningPass, PipelineStats
+)
+from .comm_overlap import ComputeCommOverlapPass, CommOverlapRecord
 
 __all__ = [
     "OperatorFusionPass",
@@ -60,5 +70,28 @@ __all__ = [
     "TilingAutotuner",
     "DataMovementRoutingPass",
     "DataMovementReport",
-    "DoubleBufferPlan"
+    "DoubleBufferPlan",
+    "SplitKMatMulPass",
+    "PrefillDecodeSpecializer",
+    "DualPathBundle",
+    "PhaseTelemetry",
+    "RematerializationAndTieringPass",
+    "RematerializationReport",
+    "MemoryActionRecord",
+    "GeneralFusionPass",
+    "FusionKind",
+    "classify_op_fusion_kind",
+    "InPlaceBufferPass",
+    "InPlaceDecision",
+    "split_loop",
+    "reorder_loops",
+    "unroll_loop",
+    "vectorize_loop",
+    "MultiLevelTilingConfig",
+    "derive_multilevel_tiling",
+    "build_multilevel_gemm_loop_ir",
+    "SoftwarePipeliningPass",
+    "PipelineStats",
+    "ComputeCommOverlapPass",
+    "CommOverlapRecord"
 ]
