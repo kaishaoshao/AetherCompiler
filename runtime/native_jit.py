@@ -1,15 +1,16 @@
 """
-Runtime: Native C JIT Compilation & Direct ctypes Execution Engine.
+Runtime: Native C JIT Compilation & Byte-Exact Direct ctypes Execution Engine.
 Absorbs TVM JIT / IREE Embedded C execution:
 
 1. Dynamic JIT Compilation:
    - Takes freestanding C code emitted by LoopIRCCodegen or RiscvNpuCodeGenerator.
    - Compiles on-the-fly into a shared library (.so / .dll) using host gcc/clang with
      -O3 -fPIC (and optional target flags like -march=native -ffast-math).
-2. Low-Overhead ctypes Memory Interop & Hardware Benchmarking:
-   - Allocates a contiguous memory arena representing device DRAM.
-   - Writes input tensors to their planned offsets, invokes run_model(dram_base, core_id),
-     and extracts output arrays directly.
+2. Byte-Exact Multi-Dtype DRAM Interop & Hardware Benchmarking:
+   - Allocates a contiguous byte-addressed memory arena (`uint8_t*`) representing device DRAM.
+   - Packs input tensors into their EXACT physical dtype bytes (FP32 4B, FP16/BF16 2B,
+     FP8/INT8/UINT8 1B, packed INT4 nibbles) at planned byte offsets, invokes
+     `run_model(dram_base, core_id)`, and unpacks output arrays directly.
    - Provides pure-C-side wall-clock benchmarking (`benchmark()`) free of Python list overhead.
 """
 
@@ -20,6 +21,17 @@ import tempfile
 import statistics
 import subprocess
 from typing import Dict, List, Tuple, Optional, Any
+
+from compiler.frontend.numeric_types import pack_values_to_bytes, unpack_bytes_to_values
+
+
+def _dtype_elem_bytes(dtype: str) -> int:
+    dt = (dtype or "float32").lower()
+    if dt in ("float16", "fp16", "half", "bfloat16", "bf16", "int16"):
+        return 2
+    if dt in ("fp8_e4m3", "fp8", "f8e4m3", "fp8_e5m2", "f8e5m2", "int8", "uint8", "bool"):
+        return 1
+    return 4
 
 
 class NativeCJitExecutor:
@@ -46,11 +58,9 @@ class NativeCJitExecutor:
         self._compile()
 
     def _compile(self):
-        # 1. Write C source to temporary file
         with open(self.c_path, "w", encoding="utf-8") as f:
             f.write(self.c_source)
 
-        # 2. Invoke host compiler (gcc or clang)
         compiler_cmd = None
         for cc in ["gcc", "clang", "cc"]:
             if subprocess.run(["which", cc], capture_output=True).returncode == 0:
@@ -90,30 +100,28 @@ class NativeCJitExecutor:
 
     def _prepare_dram(
         self,
-        inputs: Dict[str, List[float]],
+        inputs: Dict[str, Any],
         tensor_offsets: Dict[str, int],
+        tensor_dtypes: Optional[Dict[str, str]] = None,
     ):
-        num_floats = max(1024, (self.planned_bytes + 63) // 4)
-        DRAMArrayType = ctypes.c_float * num_floats
-        dram_buffer = DRAMArrayType()
+        alloc_bytes = max(4096, ((self.planned_bytes + 63) // 64) * 64 + 64)
+        DRAMByteArray = ctypes.c_uint8 * alloc_bytes
+        dram_buffer = DRAMByteArray()
+        dtypes = tensor_dtypes or {}
 
         for name, data in inputs.items():
-            if name in tensor_offsets:
-                offset_bytes = tensor_offsets[name]
-                float_idx = offset_bytes // 4
-                n = min(len(data), num_floats - float_idx)
-                if n > 0:
-                    if isinstance(data, (list, tuple)):
-                        arr_slice = (ctypes.c_float * n)(*data[:n])
-                        ctypes.memmove(
-                            ctypes.byref(dram_buffer, float_idx * 4),
-                            arr_slice,
-                            n * 4,
-                        )
-                    else:
-                        for i in range(n):
-                            dram_buffer[float_idx + i] = ctypes.c_float(float(data[i]))
-        return dram_buffer, num_floats
+            if name not in tensor_offsets:
+                continue
+            offset_bytes = int(tensor_offsets[name])
+            if isinstance(data, (bytes, bytearray)):
+                raw = bytes(data)
+            else:
+                dt = dtypes.get(name, "float32")
+                raw = pack_values_to_bytes(list(data), dt)
+            nbytes = min(len(raw), alloc_bytes - offset_bytes)
+            if nbytes > 0:
+                ctypes.memmove(ctypes.byref(dram_buffer, offset_bytes), raw, nbytes)
+        return dram_buffer, alloc_bytes
 
     def _read_outputs(
         self,
@@ -121,33 +129,39 @@ class NativeCJitExecutor:
         output_names: List[str],
         tensor_offsets: Dict[str, int],
         output_shapes: Dict[str, Tuple[int, ...]],
+        tensor_dtypes: Optional[Dict[str, str]] = None,
     ) -> Dict[str, List[float]]:
         results: Dict[str, List[float]] = {}
+        dtypes = tensor_dtypes or {}
         for out_name in output_names:
-            if out_name in tensor_offsets:
-                offset_bytes = tensor_offsets[out_name]
-                float_idx = offset_bytes // 4
-                shape = output_shapes.get(out_name, (1,))
-                total_elements = 1
-                for d in shape:
-                    if isinstance(d, int):
-                        total_elements *= d
-                results[out_name] = list(dram_buffer[float_idx : float_idx + total_elements])
+            if out_name not in tensor_offsets:
+                continue
+            offset_bytes = int(tensor_offsets[out_name])
+            shape = output_shapes.get(out_name, (1,))
+            total_elements = 1
+            for d in shape:
+                if isinstance(d, int):
+                    total_elements *= d
+            dt = dtypes.get(out_name, "float32")
+            nbytes = total_elements * _dtype_elem_bytes(dt)
+            raw = ctypes.string_at(ctypes.byref(dram_buffer, offset_bytes), nbytes)
+            results[out_name] = unpack_bytes_to_values(raw, dt, total_elements)
         return results
 
     def execute(
         self,
-        inputs: Dict[str, List[float]],
+        inputs: Dict[str, Any],
         tensor_offsets: Dict[str, int],
         output_names: List[str],
         output_shapes: Dict[str, Tuple[int, ...]],
         num_cores: int = 4,
+        tensor_dtypes: Optional[Dict[str, str]] = None,
     ) -> Dict[str, List[float]]:
-        """Executes native compiled model directly in DRAM buffer."""
+        """Executes native compiled model directly in byte-addressed DRAM arena."""
         if not self.is_available:
             raise RuntimeError(f"Native JIT compilation failed: {self.compile_error}")
 
-        dram_buffer, _ = self._prepare_dram(inputs, tensor_offsets)
+        dram_buffer, _ = self._prepare_dram(inputs, tensor_offsets, tensor_dtypes=tensor_dtypes)
         run_func = getattr(self.lib, "run_model")
         run_func.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_int]
         run_func.restype = None
@@ -156,17 +170,20 @@ class NativeCJitExecutor:
         for core_id in range(num_cores):
             run_func(dram_ptr, core_id)
 
-        return self._read_outputs(dram_buffer, output_names, tensor_offsets, output_shapes)
+        return self._read_outputs(
+            dram_buffer, output_names, tensor_offsets, output_shapes, tensor_dtypes=tensor_dtypes
+        )
 
     def benchmark(
         self,
-        inputs: Dict[str, List[float]],
+        inputs: Dict[str, Any],
         tensor_offsets: Dict[str, int],
         output_names: List[str],
         output_shapes: Dict[str, Tuple[int, ...]],
         num_cores: int = 1,
         warmup: int = 3,
         repeat: int = 10,
+        tensor_dtypes: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
         Benchmarks pure native C kernel execution latency (excluding Python marshaling).
@@ -175,7 +192,7 @@ class NativeCJitExecutor:
         if not self.is_available:
             raise RuntimeError(f"Native JIT compilation failed: {self.compile_error}")
 
-        dram_buffer, _ = self._prepare_dram(inputs, tensor_offsets)
+        dram_buffer, _ = self._prepare_dram(inputs, tensor_offsets, tensor_dtypes=tensor_dtypes)
         run_func = getattr(self.lib, "run_model")
         run_func.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_int]
         run_func.restype = None
@@ -193,7 +210,9 @@ class NativeCJitExecutor:
             t1 = time.perf_counter()
             samples_ms.append((t1 - t0) * 1000.0)
 
-        outputs = self._read_outputs(dram_buffer, output_names, tensor_offsets, output_shapes)
+        outputs = self._read_outputs(
+            dram_buffer, output_names, tensor_offsets, output_shapes, tensor_dtypes=tensor_dtypes
+        )
         return {
             "mean_ms": statistics.mean(samples_ms),
             "min_ms": min(samples_ms),

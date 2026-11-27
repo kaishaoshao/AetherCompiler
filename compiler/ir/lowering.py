@@ -134,6 +134,10 @@ def lower_graph_to_loop_ir(
                 "w_offset": buf_w.offset,
                 "b_offset": buf_b.offset if buf_b else -1,
                 "y_offset": buf_y.offset,
+                "x_dtype": X.dtype,
+                "w_dtype": W.dtype,
+                "b_dtype": B.dtype if B else "float32",
+                "y_dtype": Y.dtype,
                 "loop_mode": gemm_sched.mode,
                 "bm": BM,
                 "bn": BN,
@@ -210,6 +214,60 @@ def lower_graph_to_loop_ir(
             body_stmts.append(FreeBuffer(sram_c))
             if sram_bias:
                 body_stmts.append(FreeBuffer(sram_bias))
+        elif node.op_type == "quant_matmul":
+            X = node.inputs[0]
+            Wq = node.inputs[1]
+            Scales = node.inputs[2]
+            B = node.inputs[3] if len(node.inputs) > 3 else None
+            Y = node.outputs[0]
+
+            M = int(X.shape[-2])
+            K = int(node.attrs.get("K", X.shape[-1]))
+            N = int(node.attrs.get("N", Y.shape[-1]))
+            gemm_sched = _resolve_gemm_schedule(node, M, N, K, tiler, schedule)
+            q_meta = {
+                "kind": "quant_gemm_loop_nest",
+                "node_name": node.name,
+                "quant_dtype": str(node.attrs.get("quant_dtype", "int4")),
+                "group_size": int(node.attrs.get("group_size", 32)),
+                "epilogue": str(node.attrs.get("epilogue", "none")),
+                "M": M,
+                "N": N,
+                "K": K,
+                "x_offset": tensor_buf_map[X.name].offset,
+                "wq_offset": tensor_buf_map[Wq.name].offset,
+                "scales_offset": tensor_buf_map[Scales.name].offset,
+                "b_offset": tensor_buf_map[B.name].offset if B else -1,
+                "y_offset": tensor_buf_map[Y.name].offset,
+                "bm": gemm_sched.bm,
+                "bn": gemm_sched.bn,
+                "bk": gemm_sched.bk,
+                "mr": gemm_sched.mr,
+                "nr": gemm_sched.nr,
+                "unroll_k": gemm_sched.unroll_k,
+                "vector_width": gemm_sched.vector_width,
+                "software_pipeline_stages": gemm_sched.software_pipeline_stages,
+            }
+            body_stmts.append(ForLoop(
+                "m", "0", str(M), str(gemm_sched.bm), [],
+                is_parallel=True,
+                core_id="core_id",
+                unroll_factor=gemm_sched.unroll_k,
+                vector_width=gemm_sched.vector_width,
+                pipeline_stages=gemm_sched.software_pipeline_stages,
+                annotations=q_meta,
+            ))
+        elif node.op_type == "cast" and (node.inputs[0].dtype != "float32" or node.outputs[0].dtype != "float32"):
+            from compiler.backend.low_precision_c_emitter import emit_typed_cast_c
+            emitted = emit_typed_cast_c(
+                src_offset=tensor_buf_map[node.inputs[0].name].offset,
+                dst_offset=tensor_buf_map[node.outputs[0].name].offset,
+                src_dtype=node.inputs[0].dtype,
+                dst_dtype=node.outputs[0].dtype,
+                num_elements=node.inputs[0].num_elements,
+            )
+            for l in emitted:
+                body_stmts.append(RawCodeStmt(l))
         else:
             # Elementwise / reduction / macro ops
             ctx = {"dram_base": "dram_base", "core_id": "core_id"}

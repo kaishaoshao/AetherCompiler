@@ -165,7 +165,7 @@ class GraphVerificationError(ValueError):
 _DTYPE_EXEMPT_OPS = {
     "cast", "embedding", "gather", "topk", "moe_router", "moe_combine",
     "paged_attention", "paged_kv_append", "fused_rope_paged_kv_append",
-    "cond", "call", "fused_region",
+    "cond", "call", "fused_region", "quant_matmul",
 }
 
 

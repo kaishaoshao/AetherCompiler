@@ -255,6 +255,7 @@ def test_4_host_cpu_autotuner_and_cost_model_calibration():
 
     winners = tuner.tune_graph(g, cost_model=ctx.cost_model)
     assert "gemm_node" in winners
+    win = winners["gemm_node"]
     assert isinstance(n_mm.attrs["loop_schedule"], GemmLoopSchedule)
 
     res = AetherPipeline(
@@ -267,8 +268,8 @@ def test_4_host_cpu_autotuner_and_cost_model_calibration():
         use_loop_ir_codegen=True,
         clone_input=True,
     ).compile(g)
-    assert f"MR={best.schedule.mr} NR={best.schedule.nr}" in res.c_source
-    print(f"  * Winning schedule: {best.schedule.name} -> {best.gflops:.2f} GFLOPS (CostModel calibrated!) [PASS]")
+    assert f"MR={win.schedule.mr} NR={win.schedule.nr}" in res.c_source
+    print(f"  * Winning schedule: {win.schedule.name} -> {win.gflops:.2f} GFLOPS (CostModel calibrated!) [PASS]")
 
 
 if __name__ == "__main__":

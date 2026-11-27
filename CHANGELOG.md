@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.18.0] - 2026-11-27
+
+### Added
+- **Zero-Dependency Binary ONNX Frontend Importer & Exporter (`compiler/frontend/onnx_importer.py`, `tests/test_onnx_importer.py`)**:
+  - Implemented a spec-compliant Protobuf wire-format decoder/encoder (`ModelProto`, `GraphProto`, `NodeProto`, `TensorProto`, `ValueInfoProto`, `AttributeProto`, `TypeProto`/`TensorShapeProto`) with zero third-party dependencies.
+  - Parses real binary `.onnx` files (including `raw_data`/`float_data` initializers in FP32/FP16/BF16/INT8/INT32/INT64 and symbolic dimensions `dim_param` -> `SymbolicDim`).
+  - Lowers `MatMul`, `Gemm` (`transA`, `transB=1` with compile-time PyTorch weight pre-transpose, `alpha`, optional bias `C`), `Add`, `Mul`, `Relu`, `Silu`, `Sigmoid`+`Mul` -> `silu` idiom folding (enabling automatic SwiGLU fusion), `Gelu`, `Softmax`, `RMSNormalization`, `Transpose`, `Reshape`, `Concat`, `Gather`, `Cast`, and `Constant`.
+  - Added companion binary `.onnx` serializer (`export_graph_to_onnx_bytes` / `save_onnx_file`) verified bit-exact on Native C JIT round-trip.
+- **Real Packed Low-Precision C99 Codegen — INT4 W4A32, INT8 W8A32, FP16, BF16 & OCP FP8 E4M3FN (`compiler/backend/low_precision_c_emitter.py`, `compiler/frontend/numeric_types.py`, `compiler/midend/quantization.py`, `compiler/backend/loop_c_emitter.py`, `runtime/native_jit.py`, `benchmarks/benchmark_low_precision_cpu.py`, `tests/test_packed_low_precision_codegen.py`)**:
+  - Added bit-exact binary encoders/decoders (`encode_fp16_u16`, `encode_bf16_u16`, `encode_fp8_e4m3_u8` + exact 256-entry `FP8_E4M3_DECODE_LUT`, `pack_values_to_bytes`, `unpack_bytes_to_values`) and matching C99 inline helpers (`aether_bf16_to_f32`, `aether_fp16_to_f32`, `AETHER_FP8_E4M3_LUT[256]`, RNE `aether_f32_to_fp8_e4m3`).
+  - Registered first-class `quant_matmul` op and upgraded `WeightQuantizationPass` (`materialize_packed=True`, supporting both INT4 0.5 B/w and INT8 1.0 B/w) to physically replace FP32 weight tensors with compact `uint8`/`int8` + `scales` tensors in Graph IR and DRAM.
+  - Upgraded `MixedPrecisionPass` (`amp`) with compile-time constant weight cast folding so FP16/BF16 (2.0×) and FP8 E4M3 (4.0×) weights physically shrink DRAM instead of carrying duplicate FP32 copies at runtime.
+  - Upgraded `NativeCJitExecutor` to a byte-addressed `uint8_t*` DRAM arena with multi-dtype packing/unpacking (`tensor_dtypes`), and wired real packed GEMM/GEMV micro-kernels + typed `cast` C99 into `LoopIRCCodegen` and `AetherPipeline(enable_weight_quant=True)`.
+
+---
+
 ## [0.17.0] - 2026-11-26
 
 ### Added

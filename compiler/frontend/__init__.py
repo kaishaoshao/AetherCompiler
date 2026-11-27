@@ -20,6 +20,14 @@ from .graph import Graph, Node
 from .nn import Module, Parameter, Linear, RMSNorm, SwiGLU, GeGLU, MultiHeadSelfAttention
 from .safetensors_loader import SafeTensorsFile, load_safetensors, save_safetensors
 from .fx_importer import FXImporter
+from .onnx_importer import (
+    ONNXImporter,
+    load_onnx,
+    parse_onnx_bytes,
+    build_onnx_model_bytes,
+    export_graph_to_onnx_bytes,
+    save_onnx_file,
+)
 from .mlir_parser import MLIRParser, parse_mlir_text
 from .placement import placement, PlacementContext
 from .torch_importer import TorchModelImporter
@@ -45,6 +53,8 @@ __all__ = [
     "Graph", "Node", "Module", "Parameter", "Linear", "RMSNorm", "SwiGLU", "GeGLU", "MultiHeadSelfAttention",
     "SafeTensorsFile", "load_safetensors", "save_safetensors",
     "FXImporter",
+    "ONNXImporter", "load_onnx", "parse_onnx_bytes",
+    "build_onnx_model_bytes", "export_graph_to_onnx_bytes", "save_onnx_file",
     "TorchModelImporter",
     "placement", "PlacementContext",
     "MLIRParser", "parse_mlir_text",

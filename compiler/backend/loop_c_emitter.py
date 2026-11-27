@@ -31,6 +31,11 @@ from compiler.ir.loop_ir import (
     RawCodeStmt,
     Stmt,
 )
+from compiler.backend.low_precision_c_emitter import (
+    emit_low_precision_c_helpers,
+    emit_packed_fp_gemm_c,
+    emit_quant_matmul_c,
+)
 
 
 def _has_pipeline_sections(stmts: List[Stmt]) -> Tuple[bool, int]:
@@ -126,6 +131,7 @@ class LoopIRCCodegen:
             "    }",
             "}",
             "",
+            *emit_low_precision_c_helpers(),
         ]
 
     def _emit_microkernel_definition(
@@ -239,6 +245,10 @@ class LoopIRCCodegen:
         b_off = int(meta["b_offset"])
         y_off = int(meta["y_offset"])
         op_type = str(meta["op_type"])
+        x_dtype = str(meta.get("x_dtype", "float32"))
+        w_dtype = str(meta.get("w_dtype", "float32"))
+        b_dtype = str(meta.get("b_dtype", "float32"))
+        y_dtype = str(meta.get("y_dtype", "float32"))
         mode = str(meta.get("loop_mode", "tiled_microkernel"))
         BM = max(1, min(M, int(meta.get("bm", 64))))
         BN = max(1, min(N, int(meta.get("bn", 64))))
@@ -253,6 +263,24 @@ class LoopIRCCodegen:
             # Respect explicit schedule request even if K < 2*BK prevented LoopIR SWP split
             has_swp = True
             swp_stages = int(meta.get("software_pipeline_stages", 2))
+
+        # Dispatch real byte-packed low-precision GEMM whenever operands/output use FP16/BF16/FP8!
+        if any(dt != "float32" for dt in (x_dtype, w_dtype, y_dtype)):
+            mk_name = f"aether_mk_{MR}x{NR}_u{unroll_k}_v{vec_w}_swp{int(has_swp)}_pb1"
+            if mk_name not in emitted_kernels:
+                emitted_kernels[mk_name] = self._emit_microkernel_definition(
+                    mk_name, MR, NR, unroll_k, vec_w, has_swp, True
+                )
+            return emit_packed_fp_gemm_c(
+                node_name=str(meta.get("node_name", "gemm")),
+                op_type=op_type,
+                M=M, N=N, K=K,
+                x_offset=x_off, w_offset=w_off, b_offset=b_off, y_offset=y_off,
+                x_dtype=x_dtype, w_dtype=w_dtype, b_dtype=b_dtype, y_dtype=y_dtype,
+                bm=BM, bn=BN, bk=BK, mr=MR, nr=NR,
+                mk_fn_name=mk_name,
+                num_cores=self.num_cores,
+            )
 
         lines: List[str] = [
             f"    // [LoopIR-Codegen] node={meta.get('node_name')} op={op_type} shape=({M}x{K})x({K}x{N})",
@@ -421,6 +449,37 @@ class LoopIRCCodegen:
                         body_lines.append("    }")
                         in_raw_block = False
                     body_lines.extend(self._emit_gemm_loop_nest(stmt, emitted_kernels))
+                elif isinstance(stmt, ForLoop) and stmt.annotations.get("kind") == "quant_gemm_loop_nest":
+                    if in_raw_block:
+                        body_lines.append("    }")
+                        in_raw_block = False
+                    qm = stmt.annotations
+                    MR, NR = int(qm.get("mr", 4)), int(qm.get("nr", 16))
+                    unroll_k, vec_w = max(1, int(stmt.unroll_factor)), max(1, int(stmt.vector_width))
+                    use_swp = int(qm.get("software_pipeline_stages", 2)) >= 2
+                    mk_name = f"aether_mk_{MR}x{NR}_u{unroll_k}_v{vec_w}_swp{int(use_swp)}_pb1"
+                    if mk_name not in emitted_kernels:
+                        emitted_kernels[mk_name] = self._emit_microkernel_definition(
+                            mk_name, MR, NR, unroll_k, vec_w, use_swp, True
+                        )
+                    body_lines.extend(emit_quant_matmul_c(
+                        node_name=str(qm["node_name"]),
+                        quant_dtype=str(qm["quant_dtype"]),
+                        group_size=int(qm["group_size"]),
+                        epilogue=str(qm["epilogue"]),
+                        M=int(qm["M"]), N=int(qm["N"]), K=int(qm["K"]),
+                        x_offset=int(qm["x_offset"]),
+                        wq_offset=int(qm["wq_offset"]),
+                        scales_offset=int(qm["scales_offset"]),
+                        b_offset=int(qm["b_offset"]),
+                        y_offset=int(qm["y_offset"]),
+                        bm=int(qm.get("bm", 64)),
+                        bn=int(qm.get("bn", 64)),
+                        bk=int(qm.get("bk", 64)),
+                        mr=MR, nr=NR,
+                        mk_fn_name=mk_name,
+                        num_cores=self.num_cores,
+                    ))
                 elif isinstance(stmt, (AllocBuffer, FreeBuffer, DmaTransfer, DmaBarrier, KernelCall)):
                     # Already lowered as part of the GEMM schedule nest
                     continue

@@ -129,6 +129,7 @@ class UnifiedCompileResult:
             raise RuntimeError(f"Native C JIT unavailable (host gcc/clang failed): {err}")
 
         tensor_offsets = {t.name: getattr(t, "allocated_offset", 0) or 0 for t in self.graph.get_all_tensors()}
+        tensor_dtypes = {t.name: t.dtype for t in self.graph.get_all_tensors()}
         out_names = [out.name for out in self.graph.outputs]
         out_shapes = {out.name: tuple(out.shape) for out in self.graph.outputs}
 
@@ -140,7 +141,14 @@ class UnifiedCompileResult:
         for k, v in inputs.items():
             flat_inputs[k] = [float(x) for x in flatten_nd(v)]
 
-        res_dict = jit.execute(flat_inputs, tensor_offsets, out_names, out_shapes, num_cores=num_cores)
+        res_dict = jit.execute(
+            flat_inputs,
+            tensor_offsets,
+            out_names,
+            out_shapes,
+            num_cores=num_cores,
+            tensor_dtypes=tensor_dtypes,
+        )
         return [res_dict[name] for name in out_names]
 
     def summary(self) -> str:
@@ -176,6 +184,9 @@ class AetherPipeline:
         enable_general_fusion: bool = False,
         enable_amp: bool = False,
         amp_dtype: str = "float16",
+        enable_weight_quant: bool = False,
+        quant_dtype: str = "int4",
+        quant_group_size: int = 32,
         materialize_tp: bool = False,
         enable_split_k: bool = False,
         enable_comm_overlap: bool = False,
@@ -200,6 +211,9 @@ class AetherPipeline:
         self.enable_general_fusion = enable_general_fusion
         self.enable_amp = enable_amp
         self.amp_dtype = amp_dtype
+        self.enable_weight_quant = enable_weight_quant
+        self.quant_dtype = quant_dtype
+        self.quant_group_size = quant_group_size
         self.materialize_tp = materialize_tp
         self.enable_split_k = enable_split_k
         self.enable_comm_overlap = enable_comm_overlap
@@ -234,6 +248,8 @@ class AetherPipeline:
             names.append("general-fusion")
         if self.enable_amp:
             names.append("amp")
+        if self.enable_weight_quant:
+            names.append("quantize")
         names.extend(["cse", "dce"])
         names.append("tensor-parallel")
         if self.enable_split_k:
@@ -263,6 +279,9 @@ class AetherPipeline:
             "target": self.target,
             "min_siblings": 2,
             "compute_dtype": self.amp_dtype,
+            "quant_dtype": self.quant_dtype,
+            "group_size": self.quant_group_size,
+            "materialize_packed": self.enable_weight_quant,
             "world_size": 1,
             "insert_allreduce": True,
             "materialize_shards": self.materialize_tp,

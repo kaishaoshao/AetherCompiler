@@ -120,6 +120,20 @@ class MixedPrecisionPass(CompilerPass):
             key = (t.name, dst_dtype)
             if key in cast_cache:
                 return cast_cache[key]
+            # Compile-time constant weight folding: pre-cast constant weights offline
+            # so we do NOT keep both FP32 and low-precision weights in DRAM at runtime!
+            if t.initial_value is not None and t.producer is None:
+                from compiler.frontend.numeric_types import cast_tensor_values
+                ct = Tensor(
+                    f"{t.name}_{dst_dtype}",
+                    tuple(t.shape),
+                    dtype=dst_dtype,
+                    attrs=dict(t.attrs),
+                )
+                ct.initial_value = cast_tensor_values(t.initial_value, dst_dtype)
+                graph.add_input(ct)
+                cast_cache[key] = ct
+                return ct
             cn, ct = ops.cast(t, dst_dtype, name=f"amp_cast_{tag}_{t.name}_{dst_dtype}")
             if "storage_tier" in t.attrs:
                 ct.attrs["storage_tier"] = t.attrs["storage_tier"]
@@ -173,6 +187,9 @@ class MixedPrecisionPass(CompilerPass):
         graph.nodes = new_nodes
         graph.outputs = final_outputs
         self.report.casts_eliminated = self._eliminate_redundant_casts(graph)
+        # Drop constant inputs that were completely folded into lower-precision weights
+        used_names = {inp.name for n in graph.nodes for inp in n.inputs} | {o.name for o in graph.outputs}
+        graph.inputs = [t for t in graph.inputs if (t.initial_value is None) or (t.name in used_names)]
         graph.rebuild_def_use()
         self.report.bytes_after = sum(t.size_in_bytes for t in graph.get_all_tensors())
         return graph
